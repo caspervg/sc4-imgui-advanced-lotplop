@@ -190,7 +190,7 @@ public:
 		if (!showWindow) return;
 
 		ImGui::SetNextWindowSize(ImVec2(700, 600), ImGuiCond_FirstUseEver);
-		if (ImGui::Begin("Lot Plop Selector", &showWindow)) {
+		if (ImGui::Begin("Advanced LotPlop", &showWindow)) {
 			RenderFilters();
 			ImGui::Separator();
 			RenderLotList();
@@ -226,7 +226,7 @@ private:
 		ImGui::Text("Filters");
 
 		// Zone Type
-		const char* zoneTypes[] = { "Any", "Residential", "Commercial", "Industrial", "Agriculture" };
+		const char* zoneTypes[] = { "Any", "Residential", "Commercial", "Industrial" };
 		int currentZone = (filterZoneType == 0xFF) ? 0 : (filterZoneType + 1);
 		if (ImGui::Combo("Zone Type", &currentZone, zoneTypes, IM_ARRAYSIZE(zoneTypes))) {
 			filterZoneType = (currentZone == 0) ? 0xFF : (currentZone - 1);
@@ -264,14 +264,12 @@ private:
 	void RenderLotList() {
 		ImGui::Text("Lot Configurations (%zu found)", lotEntries.size());
 
-		if (ImGui::BeginTable("LotTable", 5,
+		if (ImGui::BeginTable("LotTable", 3,
 			ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY)) {
 
 			ImGui::TableSetupColumn("ID", ImGuiTableColumnFlags_WidthFixed, 80);
 			ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch);
 			ImGui::TableSetupColumn("Size", ImGuiTableColumnFlags_WidthFixed, 60);
-			ImGui::TableSetupColumn("Capacity", ImGuiTableColumnFlags_WidthFixed, 80);
-			ImGui::TableSetupColumn("Stage", ImGuiTableColumnFlags_WidthFixed, 50);
 			ImGui::TableHeadersRow();
 
 			for (const auto& entry : lotEntries) {
@@ -291,12 +289,6 @@ private:
 
 				ImGui::TableSetColumnIndex(2);
 				ImGui::Text("%ux%u", entry.sizeX, entry.sizeZ);
-
-				ImGui::TableSetColumnIndex(3);
-				ImGui::Text("%u-%u", entry.minCapacity, entry.maxCapacity);
-
-				ImGui::TableSetColumnIndex(4);
-				ImGui::Text("%u", entry.growthStage);
 			}
 
 			ImGui::EndTable();
@@ -318,7 +310,7 @@ private:
 			ImGui::Text("Size: %ux%u", it->sizeX, it->sizeZ);
 
 			ImGui::Spacing();
-			if (ImGui::Button("Plop This Lot (Uses game's plop tool)")) {
+			if (ImGui::Button("Plop")) {
 				TriggerLotPlop(selectedLotIID);
 			}
 			ImGui::SameLine();
@@ -339,8 +331,9 @@ private:
 
 		for (uint32_t x = minSizeX; x <= maxSizeX; x++) {
 			for (uint32_t z = minSizeZ; z <= maxSizeZ; z++) {
-				std::unordered_set<uint32_t> configIDs;  // Use IDs, not pointers
+				std::unordered_set<uint32_t> configIDs;
 
+				// !!! This sadly fails, alongside all other LotConfigMgr methods that return std::unordered_sets.
 				if (pLotConfigMgr->GetLotConfigurationIDsBySize(configIDs, x, z)) {
 					// Now iterate the IDs and fetch configs individually
 					for (uint32_t id : configIDs) {
@@ -407,7 +400,7 @@ private:
 	}
 
 	void TriggerLotPlop(uint32_t lotID) {
-		// Format: "lotplop 0x12345678"
+		// This won't work cuz I only later realized lotplop actually opens the dialog and doesn't let you plop directly
 		char cheatString[64];
 		snprintf(cheatString, sizeof(cheatString), "lotplop 0x%08X", lotID);
 

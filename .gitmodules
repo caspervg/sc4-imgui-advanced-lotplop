@@ -1,0 +1,12 @@
+[submodule "vendor/gzcom-dll"]
+	path = vendor/gzcom-dll
+	url = https://github.com/nsgomez/gzcom-dll.git
+[submodule "vendor/spdlog"]
+	path = vendor/spdlog
+	url = https://github.com/gabime/spdlog.git
+[submodule "vendor/args"]
+	path = vendor/args
+	url = https://github.com/Taywee/args.git
+[submodule "vendor/mINI"]
+	path = vendor/mINI
+	url = git@github.com:metayeti/mINI.git

@@ -1,0 +1,4 @@
+; SC4AdvancedLotPlop.def
+LIBRARY SC4AdvancedLotPlop
+EXPORTS
+    RZGetCOMDllDirector

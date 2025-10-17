@@ -332,13 +332,13 @@ private:
 
 		for (uint32_t x = minSizeX; x <= maxSizeX; x++) {
 			for (uint32_t z = minSizeZ; z <= maxSizeZ; z++) {
-				SC4HashTable<uint32_t> configIdTable;
+				SC4HashSet<uint32_t> configIdTable{};
 				configIdTable.Init(8);
 
 				if (pLotConfigMgr->GetLotConfigurationIDsBySize(configIdTable, x, z)) {
 					// Now iterate the IDs and fetch configs individually
 					LOG_INFO("Fetched lot configuration IDs for size {}x{}", x, z);
-					for (auto it : configIdTable) {
+					for (const auto it : configIdTable) {
 						cISC4LotConfiguration* pConfig = pLotConfigMgr->GetLotConfiguration(it->key);
 						if (!pConfig) continue;
 
@@ -357,19 +357,21 @@ private:
 						entry.maxCapacity = pConfig->GetMaxBuildingCapacity();
 						entry.growthStage = pConfig->GetGrowthStage();
 
-						// // Search filter
-						// if (searchBuffer[0] != '\0') {
-						//     std::string searchLower = searchBuffer;
-						//     std::transform(searchLower.begin(), searchLower.end(),
-						//                  searchLower.begin(), ::tolower);
-						//     std::string nameLower = entry.name;
-						//     std::transform(nameLower.begin(), nameLower.end(),
-						//                  nameLower.begin(), ::tolower);
-						//
-						//     if (nameLower.find(searchLower) == std::string::npos) {
-						//         continue;
-						//     }
-						// }
+						// Search filter
+						if (searchBuffer[0] != '\0') {
+						    std::string searchLower = searchBuffer;
+							std::transform(searchLower.begin(), searchLower.end(),
+										   searchLower.begin(),
+										   [](unsigned char c){ return static_cast<char>(std::tolower(c)); });
+						    std::string nameLower = entry.name;
+							std::transform(nameLower.begin(), nameLower.end(),
+										   nameLower.begin(),
+										   [](unsigned char c){ return static_cast<char>(std::tolower(c)); });
+
+						    if (nameLower.find(searchLower) == std::string::npos) {
+						        continue;
+						    }
+						}
 
 						lotEntries.push_back(entry);
 					}

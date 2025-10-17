@@ -95,12 +95,12 @@ include_directories(
 
 # Our source files
 set(SOURCES
-        src/AdvancedLotPlopDllDirector.cpp
-        ${GZCOM_SOURCES}
-        ${SC4_DLL_BASICS_SOURCE_DIR}
-        ${IMGUI_SOURCES}
-        src/utils/Logger.cpp
-        src/utils/D3D11Hook.cpp
+    src/AdvancedLotPlopDllDirector.cpp
+    ${GZCOM_SOURCES}
+    ${SC4_DLL_BASICS_SOURCE_DIR}
+    ${IMGUI_SOURCES}
+    src/utils/Logger.cpp
+    src/utils/D3D11Hook.cpp
 )
 
 set(HEADERS
@@ -113,6 +113,15 @@ set(HEADERS
 
 # Create the main DLL with explicit exports
 add_library(${PROJECT_NAME} SHARED ${SOURCES} ${HEADERS} SC4AdvancedLotPlop.def)
+
+## Add STLport includes BEFORE other includes
+#target_include_directories(${PROJECT_NAME} BEFORE PRIVATE
+#        ${STLPORT_ROOT}/stlport
+#)
+#
+#target_compile_definitions(${PROJECT_NAME} PRIVATE
+#        _STLP_NO_OWN_IOSTREAMS
+#)
 
 # Link libraries
 target_link_libraries(${PROJECT_NAME}

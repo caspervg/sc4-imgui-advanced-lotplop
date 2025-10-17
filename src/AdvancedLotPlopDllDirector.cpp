@@ -18,7 +18,6 @@
  * along with sc4-imgui-advanced-lotplop.
  * If not, see <http://www.gnu.org/licenses/>.
  */
-
 #include "version.h"
 #include "utils/Logger.h"
 #include "cIGZApp.h"
@@ -39,9 +38,11 @@
 #include "../vendor/imgui/imgui_impl_dx11.h"
 #include <d3d11.h>
 
+#include "cISC4Lot.h"
 #include "cISC4LotConfiguration.h"
 #include "cISC4LotConfigurationManager.h"
 #include "utils/D3D11Hook.h"
+
 
 class AdvancedLotPlopDllDirector;
 static constexpr uint32_t kMessageCheatIssued = 0x230E27AC;
@@ -331,19 +332,20 @@ private:
 
 		for (uint32_t x = minSizeX; x <= maxSizeX; x++) {
 			for (uint32_t z = minSizeZ; z <= maxSizeZ; z++) {
-				std::unordered_set<uint32_t> configIDs;
+				SC4HashTable<uint32_t> configIdTable;
+				configIdTable.Init(8);
 
-				// !!! This sadly fails, alongside all other LotConfigMgr methods that return std::unordered_sets.
-				if (pLotConfigMgr->GetLotConfigurationIDsBySize(configIDs, x, z)) {
+				if (pLotConfigMgr->GetLotConfigurationIDsBySize(configIdTable, x, z)) {
 					// Now iterate the IDs and fetch configs individually
-					for (uint32_t id : configIDs) {
-						cISC4LotConfiguration* pConfig = pLotConfigMgr->GetLotConfiguration(id);
+					LOG_INFO("Fetched lot configuration IDs for size {}x{}", x, z);
+					for (auto it : configIdTable) {
+						cISC4LotConfiguration* pConfig = pLotConfigMgr->GetLotConfiguration(it->key);
 						if (!pConfig) continue;
 
 						if (!MatchesFilters(pConfig)) continue;
 
 						LotConfigEntry entry;
-						entry.id = id;
+						entry.id = it->key;
 
 						cRZBaseString name;
 						if (pConfig->GetName(name)) {
@@ -374,6 +376,7 @@ private:
 				}
 			}
 		}
+		LOG_INFO("Lot entries refreshed, total: {}", lotEntries.size());
 	}
 
 	bool MatchesFilters(cISC4LotConfiguration* pConfig) {

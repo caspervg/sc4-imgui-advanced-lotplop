@@ -64,7 +64,7 @@ private:
     cISC4City* pCity = nullptr;
 
     // UI state
-    bool showWindow = true;
+    bool showWindow = false;
     uint8_t filterZoneType = 0xFF; // 0xFF means Any
     uint8_t filterWealthType = 0xFF; // 0xFF means Any
     uint32_t minSizeX = 1, maxSizeX = 16;

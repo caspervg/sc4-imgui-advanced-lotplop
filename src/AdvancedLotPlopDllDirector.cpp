@@ -41,6 +41,7 @@
 
 #include "cGZPersistResourceKey.h"
 #include "cIGZPersistResourceManager.h"
+#include "cIGZWinKeyAcceleratorRes.h"
 #include "cISC4Lot.h"
 #include "cISC4LotConfiguration.h"
 #include "cISC4LotConfigurationManager.h"
@@ -64,6 +65,10 @@
 #include "ui/LotConfigEntry.h"
 #include "ui/AdvancedLotPlopUI.h"
 #include "utils/Config.h"
+#include <future>
+#include <atomic>
+
+#include "GZMSGIDDefs.h"
 
 class AdvancedLotPlopDllDirector;
 static constexpr uint32_t kMessageCheatIssued = 0x230E27AC;
@@ -74,6 +79,14 @@ static constexpr uint32_t kAdvancedLotPlopDirectorID = 0xF78115BE;
 // Randomly generated ID to avoid conflicts with other mods
 
 static constexpr uint32_t kLotPlopCheatID = 0x4AC096C6;
+
+// Hotkey/message ID to toggle the ImGui window (unique)
+static constexpr uint32_t kToggleLotPlopWindowShortcutID = 0x9F21C3A1;
+
+// Private KeyConfig resource to register our hotkey accelerators (same pattern as BulldozeExtensions)
+static constexpr uint32_t kKeyConfigType = 0xA2E3D533;
+static constexpr uint32_t kKeyConfigGroup = 0x8F1E6D69;
+static constexpr uint32_t kKeyConfigInstance = 0x5CBCFBF8;
 
 AdvancedLotPlopDllDirector *GetLotPlopDirector();
 
@@ -163,7 +176,7 @@ public:
                         kGZWin_SC4View3DWin,
                         kGZIID_cISC4View3DWin,
                         reinterpret_cast<void**>(&pView3D))) {
-                            LOG_DEBUG("Set pView3D");
+                            RegisterToggleShortcut();
                         }
                 }
             }
@@ -230,6 +243,9 @@ public:
     }
 
     void PreCityShutdown(cIGZMessage2Standard *pStandardMsg) {
+        // Unregister our shortcut notifications
+        UnregisterToggleShortcut();
+
         lotConfigCache.clear();
         cacheInitialized = false;
 
@@ -245,8 +261,36 @@ public:
     }
 
     void RenderUI() {
-        // Delegate to UI class
-        mUI.Render();
+        bool* pShow = mUI.GetShowWindowPtr();
+        if (pShow && *pShow) {
+            if (isLoading) {
+                ImGui::OpenPopup("Loading lots...");
+                bool open = true;
+                if (ImGui::BeginPopupModal("Loading lots...", &open, ImGuiWindowFlags_AlwaysAutoResize))
+                {
+                    ImGui::Text("Building lot cache, please wait...");
+                    ImGui::Separator();
+                    ImGui::TextDisabled("This may take a few seconds, but is only required the first time.");
+                    ImGui::EndPopup();
+                }
+
+                // Poll async build completion without blocking the render thread
+                if (buildStarted && buildFuture.valid()) {
+                    auto status = buildFuture.wait_for(std::chrono::milliseconds(0));
+                    if (status == std::future_status::ready) {
+                        // Ensure completion and then refresh UI list once
+                        try { buildFuture.get(); } catch(...) { /* swallow to avoid crashing UI */ }
+                        RefreshLotList();
+                        isLoading = false;
+                        buildStarted = false;
+                        ImGui::CloseCurrentPopup();
+                    }
+                }
+            } else {
+                // Delegate to UI class
+                mUI.Render();
+            }
+        }
     }
 
 private:
@@ -270,6 +314,34 @@ private:
     std::unordered_map<uint32_t, LotConfigEntry> lotConfigCache;
     bool imGuiInitialized = false;
     bool cacheInitialized = false;
+    bool isLoading = false;
+    bool buildStarted = false;
+    std::future<void> buildFuture;
+
+    void RegisterToggleShortcut() {
+        if (!pView3D) return;
+        cIGZPersistResourceManagerPtr pRM;
+        if (pRM) {
+            cRZAutoRefCount<cIGZWinKeyAcceleratorRes> pAcceleratorRes;
+            const cGZPersistResourceKey key(kKeyConfigType, kKeyConfigGroup, kKeyConfigInstance);
+            if (pRM->GetPrivateResource(key, kGZIID_cIGZWinKeyAcceleratorRes, pAcceleratorRes.AsPPVoid(), 0, nullptr)) {
+                auto* pAccel = pView3D->GetKeyAccelerator();
+                if (pAccel) {
+                    pAcceleratorRes->RegisterResources(pAccel);
+                    if (pMS2) {
+                        pMS2->AddNotification(this, kToggleLotPlopWindowShortcutID);
+                    }
+                }
+            }
+        }
+    }
+
+    void UnregisterToggleShortcut() {
+        cIGZMessageServer2Ptr pMS2Local;
+        if (pMS2Local) {
+            pMS2Local->RemoveNotification(this, kToggleLotPlopWindowShortcutID);
+        }
+    }
 
     // Render logic has been moved to src/ui/AdvancedLotPlopUI
     void RenderFilters() {
@@ -568,11 +640,18 @@ private:
         bool* pShow = mUI.GetShowWindowPtr();
         *pShow = !*pShow;
         if (*pShow) {
-            // Only rebuild cache if city changed or first time
+            // On first open after city init, build cache lazily with loading screen
             if (!cacheInitialized) {
-                BuildLotConfigCache();
+                isLoading = true;
+                if (!buildStarted) {
+                    buildStarted = true;
+                    buildFuture = std::async(std::launch::async, [this]() {
+                        BuildLotConfigCache();
+                    });
+                }
+            } else {
+                RefreshLotList();
             }
-            RefreshLotList();
         }
     }
 
@@ -671,23 +750,20 @@ private:
         }
 
         // Create parameter sets
-        cIGZCommandParameterSet* pInput = nullptr;
-        cIGZCommandParameterSet* pOutput = nullptr;
+        cIGZCommandParameterSet* pCommand1 = nullptr;
+        cIGZCommandParameterSet* pCommand2 = nullptr;
 
-        if (!pCmdServer->CreateCommandParameterSet(&pInput) ||
-            !pCmdServer->CreateCommandParameterSet(&pOutput)) {
+        if (!pCmdServer->CreateCommandParameterSet(&pCommand1) ||
+            !pCmdServer->CreateCommandParameterSet(&pCommand2)) {
             LOG_ERROR("Failed to create command parameter sets");
             return;
         }
 
-        // Set building ID as uint32 array in parameter 0 (handler expects array)
-        auto var = cRZBaseVariant();
-        uint32_t lotArray[2] = { lotID, true }; // Second argument is true
-        var.RefUint32(lotArray, 2);  // Array of 1 element
-        pInput->SetParameter(0, var);
+        pCommand1->AppendParameter(cRZBaseVariant(lotID));
+        pCommand2->AppendParameter(cRZBaseVariant(0xDEADBEEF)); // The second parameter is unused, so we use a placeholder value.
 
         // Send placement command (0xec3e82f8 = activate building placement tool)
-        bool success = pView3D->ProcessCommand(0xec3e82f8, *pInput, *pOutput);
+        bool success = pView3D->ProcessCommand(0xec3e82f8, *pCommand1, *pCommand2);
 
         if (success) {
             LOG_INFO("Activated placement tool for lot 0x{:X}", lotID);
@@ -696,8 +772,8 @@ private:
         }
 
         // Cleanup
-        pInput->Release();
-        pOutput->Release();
+        pCommand1->Release();
+        pCommand2->Release();
     }
 
     bool DoMessage(cIGZMessage2 *pMsg) {
@@ -712,6 +788,9 @@ private:
                 break;
             case kSC4MessagePreCityShutdown:
                 PreCityShutdown(pStandardMsg);
+                break;
+            case kToggleLotPlopWindowShortcutID:
+                ToggleWindow();
                 break;
             default:
                 LOG_DEBUG("Unsupported message type: 0x{:X}", pMsg->GetType());

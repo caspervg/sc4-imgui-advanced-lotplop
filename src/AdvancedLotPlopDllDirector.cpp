@@ -45,19 +45,13 @@
 #include "cISC4Lot.h"
 #include "cISC4LotConfiguration.h"
 #include "cISC4LotConfigurationManager.h"
-#include "SCPropertyUtil.h"
-#include "StringResourceKey.h"
-#include "StringResourceManager.h"
 #include "utils/D3D11Hook.h"
-#include "PersistResourceKeyFilterByTypeAndInstance.h"
-#include "cIGZPersistResourceKeyList.h"
 #include "cIGZVariant.h"
 #include "cISCProperty.h"
 #include "cIGZCommandServer.h"
 #include "cIGZCommandParameterSet.h"
 #include "cIGZWin.h"
 #include "cRZBaseVariant.h"
-#include "PersistResourceKeyFilterByInstance.h"
 #include "exemplar/ExemplarUtil.h"
 #include "exemplar/PropertyUtil.h"
 #include "exemplar/IconResourceUtil.h"
@@ -65,10 +59,12 @@
 #include "ui/LotConfigEntry.h"
 #include "ui/AdvancedLotPlopUI.h"
 #include "utils/Config.h"
+#include "utils/CacheSerializer.h"
 #include <future>
-#include <atomic>
-
-#include "GZMSGIDDefs.h"
+#include <deque>
+#include <fstream>
+#include <sstream>
+#include <string>
 
 class AdvancedLotPlopDllDirector;
 static constexpr uint32_t kMessageCheatIssued = 0x230E27AC;
@@ -115,6 +111,7 @@ public:
         cb.OnPlop = [](uint32_t lotID){ if (GetLotPlopDirector()) GetLotPlopDirector()->TriggerLotPlop(lotID); };
         cb.OnBuildCache = [](){ if (GetLotPlopDirector()) GetLotPlopDirector()->BuildLotConfigCache(); };
         cb.OnRefreshList = [](){ if (GetLotPlopDirector()) GetLotPlopDirector()->RefreshLotList(); };
+        cb.OnRequestIcon = [](uint32_t iconInstanceID){ if (GetLotPlopDirector()) GetLotPlopDirector()->RequestIcon(iconInstanceID); };
         mUI.SetCallbacks(cb);
         mUI.SetLotEntries(&lotEntries);
     }
@@ -270,7 +267,8 @@ public:
                 {
                     ImGui::Text("Building lot cache, please wait...");
                     ImGui::Separator();
-                    ImGui::TextDisabled("This may take a few seconds, but is only required the first time.");
+                    ImGui::TextDisabled("This may take some time, but is only required the first time.");
+                    ImGui::TextDisabled("Current cache size: %d", lotConfigCache.size());
                     ImGui::EndPopup();
                 }
 
@@ -287,6 +285,8 @@ public:
                     }
                 }
             } else {
+                // Run a small number of lazy icon decode jobs per frame
+                ProcessIconJobs(4);
                 // Delegate to UI class
                 mUI.Render();
             }
@@ -312,11 +312,24 @@ private:
     std::vector<LotConfigEntry> lotEntries;
     uint32_t selectedLotIID;
     std::unordered_map<uint32_t, LotConfigEntry> lotConfigCache;
+    // Map visible list row by lot id for quick updates when icons load
+    std::unordered_map<uint32_t, size_t> lotEntryIndexByID;
+
+    // Lazy icon decode queue
+    std::deque<uint32_t> iconJobQueue;
+
     bool imGuiInitialized = false;
     bool cacheInitialized = false;
     bool isLoading = false;
     bool buildStarted = false;
     std::future<void> buildFuture;
+
+    void RequestIcon(uint32_t lotID);
+    void ProcessIconJobs(uint32_t maxJobsPerFrame = 1);
+
+    // Cache persistence
+    bool LoadCacheFromDisk(const std::string& path);
+    void SaveCacheToDisk(const std::string& path);
 
     void RegisterToggleShortcut() {
         if (!pView3D) return;
@@ -503,27 +516,10 @@ private:
                                         }
                                     }
 
-                                    // Try to load Item Icon PNG and create SRV
+                                    // Store Item Icon PNG instance ID for lazy loading later
                                     uint32_t iconInstance = 0;
                                     if (ExemplarUtil::GetItemIconInstance(pBuildingExemplar, iconInstance)) {
-                                        std::vector<uint8_t> pngBytes;
-                                        if (ExemplarUtil::LoadPNGByInstance(pRM, iconInstance, pngBytes)) {
-                                            if (!pngBytes.empty()) {
-                                                ID3D11Device* device = D3D11Hook::GetDevice();
-                                                if (device) {
-                                                    ID3D11ShaderResourceView* srv = nullptr;
-                                                    int w = 0, h = 0;
-                                                    if (gfx::CreateSRVFromPNGMemory(pngBytes.data(), pngBytes.size(), device, &srv, &w, &h)) {
-                                                        entry.iconSRV = srv;
-                                                        entry.iconWidth = w;
-                                                        entry.iconHeight = h;
-                                                        LOG_DEBUG("Created SRV for lot config ID 0x{:X}", lotConfigID);
-                                                    } else {
-                                                        LOG_ERROR("Failed to create SRV from PNG memory");
-                                                    }
-                                                }
-                                            }
-                                        }
+                                        entry.iconInstance = iconInstance;
                                     }
 
                                     // Occupant Groups
@@ -576,6 +572,7 @@ private:
         }
 
         lotEntries.clear();
+        lotEntryIndexByID.clear();
 
         cISC4LotConfigurationManager *pLotConfigMgr = pCity->GetLotConfigurationManager();
         if (!pLotConfigMgr) return;
@@ -630,24 +627,54 @@ private:
                         }
 
                         lotEntries.push_back(cachedEntry);
+                        lotEntryIndexByID[cachedEntry.id] = lotEntries.size() - 1;
                     }
                 }
             }
         }
     }
 
+    static std::string GetModuleDir() {
+        char path[MAX_PATH] = {0};
+        HMODULE hMod = nullptr;
+        if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                                (LPCSTR)&GetModuleDir,
+                                &hMod)) {
+            GetModuleFileNameA(hMod, path, MAX_PATH);
+            std::string p = path;
+            size_t pos = p.find_last_of("/\\");
+            if (pos != std::string::npos) {
+                p.resize(pos);
+                return p;
+            }
+                                }
+        return std::string(".");
+    }
+
     void ToggleWindow() {
+        static const int kCacheSchemaVersion = 1;
+        const std::string cacheFile = GetModuleDir().append("\\AdvancedLotPlopCache.ini");
         bool* pShow = mUI.GetShowWindowPtr();
         *pShow = !*pShow;
         if (*pShow) {
             // On first open after city init, build cache lazily with loading screen
             if (!cacheInitialized) {
-                isLoading = true;
-                if (!buildStarted) {
-                    buildStarted = true;
-                    buildFuture = std::async(std::launch::async, [this]() {
-                        BuildLotConfigCache();
-                    });
+                // Try to load from on-disk cache first for instant startup
+                if (LoadCacheFromDisk(cacheFile)) {
+                    cacheInitialized = true;
+                    LOG_INFO("Loaded lot cache from disk: {} entries", lotConfigCache.size());
+                    RefreshLotList();
+                } else {
+                    // Fall back to building asynchronously with a loading popup
+                    isLoading = true;
+                    if (!buildStarted) {
+                        buildStarted = true;
+                        buildFuture = std::async(std::launch::async, [this, cacheFile]() {
+                            BuildLotConfigCache();
+                            // Persist for next run
+                            SaveCacheToDisk(cacheFile);
+                        });
+                    }
                 }
             } else {
                 RefreshLotList();
@@ -852,6 +879,72 @@ private:
     }
 };
 
+// Lazy icon: enqueue request if not yet queued/loaded
+void AdvancedLotPlopDllDirector::RequestIcon(uint32_t lotID) {
+    auto it = lotConfigCache.find(lotID);
+    if (it == lotConfigCache.end()) return;
+    LotConfigEntry &entry = it->second;
+    if (entry.iconSRV || entry.iconRequested) return;
+    if (entry.iconInstance == 0) { // no icon to load
+        entry.iconRequested = true; // prevent repeated requests
+        return;
+    }
+    entry.iconRequested = true;
+    iconJobQueue.push_back(lotID);
+}
+
+void AdvancedLotPlopDllDirector::ProcessIconJobs(uint32_t maxJobsPerFrame) {
+    if (!cacheInitialized || iconJobQueue.empty() || maxJobsPerFrame == 0) return;
+
+    uint32_t processed = 0;
+    while (processed < maxJobsPerFrame && !iconJobQueue.empty()) {
+        uint32_t lotID = iconJobQueue.front();
+        iconJobQueue.pop_front();
+
+        auto it = lotConfigCache.find(lotID);
+        if (it == lotConfigCache.end()) { continue; }
+        LotConfigEntry &entry = it->second;
+        if (entry.iconSRV) { continue; }
+
+        // Resource manager
+        cIGZPersistResourceManagerPtr pRM;
+        if (!pRM) { continue; }
+
+        // Use stored icon instance to avoid walking exemplar chain
+        if (entry.iconInstance == 0) {
+            continue; // no icon for this entry
+        }
+        std::vector<uint8_t> pngBytes;
+        if (!ExemplarUtil::LoadPNGByInstance(pRM, entry.iconInstance, pngBytes) || pngBytes.empty()) {
+            continue;
+        }
+
+        ID3D11Device* device = D3D11Hook::GetDevice();
+        if (!device) { continue; }
+
+        ID3D11ShaderResourceView* srv = nullptr;
+        int w = 0, h = 0;
+        if (gfx::CreateSRVFromPNGMemory(pngBytes.data(), pngBytes.size(), device, &srv, &w, &h)) {
+            // Update cache entry
+            entry.iconSRV = srv;
+            entry.iconWidth = w;
+            entry.iconHeight = h;
+            // Propagate to visible list if present
+            auto mit = lotEntryIndexByID.find(lotID);
+            if (mit != lotEntryIndexByID.end()) {
+                size_t idx = mit->second;
+                if (idx < lotEntries.size()) {
+                    lotEntries[idx].iconSRV = srv;
+                    lotEntries[idx].iconWidth = w;
+                    lotEntries[idx].iconHeight = h;
+                }
+            }
+        }
+
+        processed++;
+    }
+}
+
 static AdvancedLotPlopDllDirector sDirector;
 
 cRZCOMDllDirector *RZGetCOMDllDirector() {
@@ -860,4 +953,14 @@ cRZCOMDllDirector *RZGetCOMDllDirector() {
 
 AdvancedLotPlopDllDirector *GetLotPlopDirector() {
     return &sDirector;
+}
+
+void AdvancedLotPlopDllDirector::SaveCacheToDisk(const std::string& path) {
+    // Delegate to INI serializer util
+    CacheSerializer::SaveLotCacheINI(lotConfigCache, path, PLUGIN_VERSION_STR, 1);
+}
+
+bool AdvancedLotPlopDllDirector::LoadCacheFromDisk(const std::string& path) {
+    // Delegate to INI serializer util
+    return CacheSerializer::LoadLotCacheINI(lotConfigCache, path, 1);
 }

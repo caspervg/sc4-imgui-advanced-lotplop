@@ -15,6 +15,8 @@ struct AdvancedLotPlopUICallbacks {
     void (*OnBuildCache)() = nullptr;
     // Rebuild filtered list
     void (*OnRefreshList)() = nullptr;
+    // Lazy icon request when a row becomes visible
+    void (*OnRequestIcon)(uint32_t lotID) = nullptr;
 };
 
 class AdvancedLotPlopUI {
@@ -54,7 +56,7 @@ private:
     void RenderFilters();
     void RenderLotList();
 
-    static void RenderIconForEntry(LotConfigEntry entry);
+    void RenderIconForEntry(const LotConfigEntry& entry);
 
     void RenderDetails();
     void RenderOccupantGroupFilter();

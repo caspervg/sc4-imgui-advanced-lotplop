@@ -17,9 +17,15 @@ struct LotConfigEntry {
     // Building classification
     std::unordered_set<uint32_t> occupantGroups; // Raw occupant group IDs
 
-    // Optional: Item Icon (from building exemplar Item Icon property)
+    // Item Icon instance (PNG resource instance id) saved during cache build
+    uint32_t iconInstance = 0;
+
+    // Optional: Item Icon SRV (decoded lazily)
     // Only used for ploppable buildings. SRV owned by the director; UI only reads it.
     ID3D11ShaderResourceView* iconSRV = nullptr;
     int iconWidth = 0;
     int iconHeight = 0;
+
+    // Lazy load state (set by director when a decode job is queued)
+    bool iconRequested = false;
 };

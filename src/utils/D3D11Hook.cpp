@@ -37,6 +37,10 @@ bool D3D11Hook::Initialize(HWND hGameWindow) {
     return false;
 }
 
+/*
+ * TODO: There are easier ways to retrieve a HWND,
+ * see https://discord.com/channels/383313438065033228/1109216796688535582/1429052637915123875
+ */
 bool D3D11Hook::InstallPresentHook(HWND hWnd) {
     LOG_INFO("D3D11Hook: Installing Present hook...");
 

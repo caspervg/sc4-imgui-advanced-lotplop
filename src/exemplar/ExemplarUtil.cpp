@@ -21,18 +21,15 @@
 // ReSharper disable CppDFAUnreachableCode
 // ReSharper disable CppDFAConstantFunctionResult
 #include "ExemplarUtil.h"
+#include "PropertyUtil.h"
+#include "SCPropertyUtil.h"
 #include "PersistResourceKeyFilterByInstance.h"
 #include "cIGZPersistResourceKeyList.h"
 #include "cIGZVariant.h"
 #include "cISCProperty.h"
-#include "StringResourceKey.h"
-#include "StringResourceManager.h"
-#include "SCPropertyUtil.h"
 
-// Common property IDs
-static constexpr uint32_t kPropertyLotObjectsBase = 0x88EDC900;
-static constexpr uint32_t kPropertyLotObjectsRange = 256;
-static constexpr uint32_t kPropertyUserVisibleNameKey = 0x8A416A99;
+static constexpr uint32_t kPropertyLotObjectsStart = 0x88EDC900;
+static constexpr uint32_t kPropertyLotObjectsEnd = 0x88EDCDFF;
 
 bool GetExemplarByInstance(
     cIGZPersistResourceManager* pRM,
@@ -76,7 +73,6 @@ bool GetExemplarByInstanceAndType(
 
     cRZAutoRefCount<cIGZPersistResourceKeyList> pKeyList;
     if (pRM->GetAvailableResourceList(pKeyList.AsPPObj(), filter) > 0 && pKeyList) {
-        // Iterate through all resources with this instance ID
         for (auto i = 0; i < pKeyList->Size(); i++) {
             cRZAutoRefCount<cISCPropertyHolder> pPotentialExemplar;
             if (pRM->GetResource(
@@ -86,14 +82,9 @@ bool GetExemplarByInstanceAndType(
                 0,
                 nullptr
             )) {
-                // Check if it matches the expected type
-                const cISCProperty* pTypeProp = pPotentialExemplar->GetProperty(exemplarTypePropertyID);
-                if (!pTypeProp) continue;
-
-                const cIGZVariant* pTypeVariant = pTypeProp->GetPropertyValue();
-                if (!pTypeVariant || pTypeVariant->GetType() != cIGZVariant::Uint32) continue;
-
-                if (pTypeVariant->GetValUint32() == expectedTypeValue) {
+                uint32_t typeValue;
+                if (SCPropertyUtil::GetPropertyValue(pPotentialExemplar, exemplarTypePropertyID, typeValue)
+                    && typeValue == expectedTypeValue) {
                     outExemplar = pPotentialExemplar;
                     return true;
                 }
@@ -111,8 +102,8 @@ bool GetLotBuildingExemplarID(
     if (!pLotExemplar) return false;
 
     // Search through PropertyLotObjects range
-    for (uint32_t propID = kPropertyLotObjectsBase;
-         propID < kPropertyLotObjectsBase + kPropertyLotObjectsRange;
+    for (uint32_t propID = kPropertyLotObjectsStart;
+         propID <= kPropertyLotObjectsEnd;
          propID++) {
 
         const cISCProperty* pProp = pLotExemplar->GetProperty(propID);
@@ -145,14 +136,8 @@ bool GetLocalizedBuildingName(
     cISCPropertyHolder* pBuildingExemplar,
     cRZAutoRefCount<cIGZString>& outName
 ) {
-    if (!pRM || !pBuildingExemplar) return false;
-
-    StringResourceKey nameKey;
-    if (SCPropertyUtil::GetPropertyValue(pBuildingExemplar, kPropertyUserVisibleNameKey, nameKey)) {
-        return StringResourceManager::GetLocalizedString(nameKey, outName);
-    }
-
-    return false;
+    if (!pBuildingExemplar) return false;
+    return PropertyUtil::GetUserVisibleName(pBuildingExemplar, outName);
 }
 
 bool GetPropertyUint32(
@@ -160,16 +145,7 @@ bool GetPropertyUint32(
     uint32_t propertyID,
     uint32_t& outValue
 ) {
-    if (!pHolder) return false;
-
-    const cISCProperty* pProp = pHolder->GetProperty(propertyID);
-    if (!pProp) return false;
-
-    const cIGZVariant* pVariant = pProp->GetPropertyValue();
-    if (!pVariant || pVariant->GetType() != cIGZVariant::Uint32) return false;
-
-    outValue = pVariant->GetValUint32();
-    return true;
+    return SCPropertyUtil::GetPropertyValue(pHolder, propertyID, outValue);
 }
 
 bool GetPropertyUint32Array(

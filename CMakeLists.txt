@@ -112,6 +112,8 @@ set(HEADERS
     ${CMAKE_SOURCE_DIR}/src/utils/Logger.h
     ${CMAKE_SOURCE_DIR}/src/utils/D3D11Hook.h
     ${CMAKE_SOURCE_DIR}/src/exemplar/ExemplarUtil.h
+        src/exemplar/PropertyUtil.cpp
+        src/exemplar/PropertyUtil.h
 )
 
 # Create the main DLL with explicit exports

@@ -54,6 +54,7 @@
 #include "cISCProperty.h"
 #include "PersistResourceKeyFilterByInstance.h"
 #include "exemplar/ExemplarUtil.h"
+#include "exemplar/PropertyUtil.h"
 #include "ui/LotConfigEntry.h"
 #include "ui/AdvancedLotPlopUI.h"
 
@@ -187,6 +188,9 @@ public:
     void PreCityShutdown(cIGZMessage2Standard *pStandardMsg) {
         lotConfigCache.clear();
         cacheInitialized = false;
+
+        // Ensure UI no longer references city resources during shutdown
+        mUI.SetCity(nullptr);
 
         cISC4View3DWin *localView3D = pView3D;
         pView3D = nullptr;
@@ -356,12 +360,10 @@ private:
                         LotConfigEntry entry;
                         entry.id = lotConfigID;
 
-                        // Load lot exemplar and try to get building name
                         cRZAutoRefCount<cISCPropertyHolder> pLotExemplar;
                         if (GetExemplarByInstance(pRM, lotConfigID, pLotExemplar)) {
                             uint32_t buildingExemplarID = 0;
                             if (GetLotBuildingExemplarID(pLotExemplar, buildingExemplarID)) {
-                                // Load building exemplar of the correct type
                                 cRZAutoRefCount<cISCPropertyHolder> pBuildingExemplar;
                                 if (GetExemplarByInstanceAndType(
                                     pRM,
@@ -370,17 +372,16 @@ private:
                                     kPropertyExemplarTypeBuilding,
                                     pBuildingExemplar
                                 )) {
-                                    cRZAutoRefCount<cIGZString> localizedName;
-                                    if (GetLocalizedBuildingName(pRM, pBuildingExemplar, localizedName)) {
+                                    cRZBaseString displayName;
+                                    if (PropertyUtil::GetDisplayName(pBuildingExemplar, displayName)) {
                                         cRZBaseString techName;
                                         pConfig->GetName(techName);
-                                        entry.name = std::string(localizedName->Data()) + " (" + techName.Data() + ")";
+                                        entry.name = std::string(displayName.Data()) + " (" + techName.Data() + ")";
                                     }
                                 }
                             }
                         }
 
-                        // Fallback to technical name
                         if (entry.name.empty()) {
                             cRZBaseString techName;
                             if (pConfig->GetName(techName)) {
@@ -587,6 +588,11 @@ private:
         static bool initialized = false;
         static ID3D11RenderTargetView *pRTV = nullptr;
 
+        // If ImGui context has been destroyed, skip rendering safely
+        if (ImGui::GetCurrentContext() == nullptr) {
+            return;
+        }
+
         // Lazy initialize renderer backend
         if (!initialized) {
             HWND hWnd = D3D11Hook::GetGameWindow();
@@ -617,11 +623,8 @@ private:
         ImGui_ImplWin32_NewFrame();
         ImGui::NewFrame();
 
-        // Example UI
-        //ImGui::ShowDemoWindow();
-
         auto pDirector = GetLotPlopDirector();
-        if (GetLotPlopDirector()) {
+        if (pDirector) {
             pDirector->RenderUI();
         }
 

@@ -198,6 +198,11 @@ bool D3D11Hook::InstallWndProcHook() {
 }
 
 LRESULT CALLBACK D3D11Hook::WndProcHook(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    // If ImGui context is not available, bypass ImGui handling entirely
+    if (ImGui::GetCurrentContext() == nullptr) {
+        return CallWindowProcW(s_OriginalWndProc, hWnd, msg, wParam, lParam);
+    }
+
     // Let ImGui handle the message first
     LRESULT imguiResult = ImGui_ImplWin32_WndProcHandler(hWnd, msg, wParam, lParam);
     if (imguiResult) {

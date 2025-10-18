@@ -763,12 +763,11 @@ private:
         pCommand2->AppendParameter(cRZBaseVariant(0xDEADBEEF)); // The second parameter is unused, so we use a placeholder value.
 
         // Send placement command (0xec3e82f8 = activate building placement tool)
-        bool success = pView3D->ProcessCommand(0xec3e82f8, *pCommand1, *pCommand2);
+        pView3D->ProcessCommand(0xec3e82f8, *pCommand1, *pCommand2);
 
-        if (success) {
-            LOG_INFO("Activated placement tool for lot 0x{:X}", lotID);
-        } else {
-            LOG_WARN("Failed to activate placement tool for lot 0x{:X}", lotID);
+        bool* pShow = mUI.GetShowWindowPtr();
+        if (pShow) {
+            *pShow = false;
         }
 
         // Cleanup

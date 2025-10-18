@@ -212,7 +212,8 @@ void AdvancedLotPlopUI::RenderLotList() {
     ImGui::Text("Lot Configurations (%zu found)", count);
 
     if (ImGui::BeginTable("LotTable", 4,
-                          ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY)) {
+                          ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY, ImVec2(0.0f, 48.0f * 8))) {
+        ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableSetupColumn("Icon", ImGuiTableColumnFlags_WidthFixed, 56.0f);
         ImGui::TableSetupColumn("ID", ImGuiTableColumnFlags_WidthFixed, 80);
         ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch);
@@ -220,30 +221,35 @@ void AdvancedLotPlopUI::RenderLotList() {
         ImGui::TableHeadersRow();
 
         if (lotEntries) {
-            for (const auto &entry: *lotEntries) {
-                ImGui::TableNextRow();
+            ImGuiListClipper clipper;
+            clipper.Begin(lotEntries->size());
+            while (clipper.Step()) {
+                for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; ++row) {
+                    const auto &entry = (*lotEntries)[row];
+                    ImGui::TableNextRow();
 
-                // Icon column
-                ImGui::TableSetColumnIndex(0);
-                RenderIconForEntry(entry);
+                    // Icon column
+                    ImGui::TableSetColumnIndex(0);
+                    RenderIconForEntry(entry);
 
-                // ID column + selection behavior spanning the row
-                ImGui::TableSetColumnIndex(1);
-                bool isSelected = (entry.id == selectedLotIID);
-                char label[32];
-                snprintf(label, sizeof(label), "0x%08X", entry.id);
-                if (ImGui::Selectable(label, isSelected, ImGuiSelectableFlags_SpanAllColumns)) {
-                    selectedLotIID = entry.id;
+                    // ID column + selection behavior spanning the row
+                    ImGui::TableSetColumnIndex(1);
+                    bool isSelected = (entry.id == selectedLotIID);
+                    char label[32];
+                    snprintf(label, sizeof(label), "0x%08X", entry.id);
+                    if (ImGui::Selectable(label, isSelected, ImGuiSelectableFlags_SpanAllColumns)) {
+                        selectedLotIID = entry.id;
+                    }
+
+                    ImGui::TableSetColumnIndex(2);
+                    ImGui::Text("%s", entry.name.c_str());
+                    if (!entry.description.empty() && ImGui::IsItemHovered()) {
+                        ImGui::SetTooltip("%s", entry.description.c_str());
+                    }
+
+                    ImGui::TableSetColumnIndex(3);
+                    ImGui::Text("%ux%u", entry.sizeX, entry.sizeZ);
                 }
-
-                ImGui::TableSetColumnIndex(2);
-                ImGui::Text("%s", entry.name.c_str());
-                if (!entry.description.empty() && ImGui::IsItemHovered()) {
-                    ImGui::SetTooltip("%s", entry.description.c_str());
-                }
-
-                ImGui::TableSetColumnIndex(3);
-                ImGui::Text("%ux%u", entry.sizeX, entry.sizeZ);
             }
         }
 

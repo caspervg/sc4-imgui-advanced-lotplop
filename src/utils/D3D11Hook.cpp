@@ -209,6 +209,14 @@ LRESULT CALLBACK D3D11Hook::WndProcHook(HWND hWnd, UINT msg, WPARAM wParam, LPAR
         return imguiResult; // ImGui consumed the message
     }
 
+    if (msg == WM_MOUSEACTIVATE) {
+        // Check if mouse is over any ImGui window
+        ImGuiIO& io = ImGui::GetIO();
+        if (io.WantCaptureMouse) {
+            return 0; // Don't pass click to game when ImGui wants mouse input
+        }
+    }
+
     // For scroll wheel messages, check if ImGui wants to handle them
     if (msg == WM_MOUSEWHEEL || msg == WM_MOUSEHWHEEL) {
         // Check if mouse is over any ImGui window

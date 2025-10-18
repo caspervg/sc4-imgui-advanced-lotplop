@@ -61,45 +61,65 @@ void AdvancedLotPlopUI::Render() {
 }
 
 void AdvancedLotPlopUI::RenderFilters() {
-    ImGui::Text("Filters");
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4, 2));
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8, 4));
 
-    // Zone Type labels based on SC4 zone categories
-    const char *zoneTypes[] = {"Any", "Residential (R)", "Commercial (C)", "Industrial (I)", "Agriculture", "Plopped", "None", "Other"};
-    int currentZone = (filterZoneType == 0xFF) ? 0 : (filterZoneType + 1);
-    if (ImGui::Combo("Zone Type", &currentZone, zoneTypes, IM_ARRAYSIZE(zoneTypes))) {
-        // Store as category index: 0=R,1=C,2=I,3=Agriculture,4=Plopped,5=None,6=Other; 0xFF means Any
-        filterZoneType = (currentZone == 0) ? 0xFF : static_cast<uint8_t>(currentZone - 1);
-        if (callbacks.OnRefreshList) callbacks.OnRefreshList();
+    if (ImGui::BeginTable("FilterTable", 4, ImGuiTableFlags_SizingStretchSame)) {
+        ImGui::TableNextRow();
+
+        ImGui::TableSetColumnIndex(0);
+        const char *zoneTypes[] = {"Any zone", "Residential (R)", "Commercial (C)", "Industrial (I)", "Agriculture", "Plopped", "None", "Other"};
+        int currentZone = (filterZoneType == 0xFF) ? 0 : (filterZoneType + 1);
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        if (ImGui::Combo("Zone", &currentZone, zoneTypes, IM_ARRAYSIZE(zoneTypes))) {
+            filterZoneType = (currentZone == 0) ? 0xFF : static_cast<uint8_t>(currentZone - 1);
+            if (callbacks.OnRefreshList) callbacks.OnRefreshList();
+        }
+
+        ImGui::TableSetColumnIndex(1);
+        const char *wealthTypes[] = {"Any wealth", "Low ($)", "Medium ($$)", "High ($$$)"};
+        int currentWealth = (filterWealthType == 0xFF) ? 0 : (filterWealthType + 1);
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        if (ImGui::Combo("Wealth", &currentWealth, wealthTypes, IM_ARRAYSIZE(wealthTypes))) {
+            filterWealthType = (currentWealth == 0) ? 0xFF : (currentWealth - 1);
+            if (callbacks.OnRefreshList) callbacks.OnRefreshList();
+        }
+
+        ImGui::TableNextRow();
+        ImGui::TableSetColumnIndex(0);
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        bool widthChanged = ImGui::SliderInt("Width", (int *) &minSizeX, 1, 16, "Width: %d", ImGuiSliderFlags_AlwaysClamp);
+
+        ImGui::TableSetColumnIndex(1);
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        widthChanged |= ImGui::SliderInt("##MaxWidth", (int *) &maxSizeX, 1, 16, "to %d", ImGuiSliderFlags_AlwaysClamp);
+
+        ImGui::TableSetColumnIndex(2);
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        bool depthChanged = ImGui::SliderInt("Depth", (int *) &minSizeZ, 1, 16, "Depth: %d", ImGuiSliderFlags_AlwaysClamp);
+
+        ImGui::TableSetColumnIndex(3);
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        depthChanged |= ImGui::SliderInt("##MaxDepth", (int *) &maxSizeZ, 1, 16, "to %d", ImGuiSliderFlags_AlwaysClamp);
+
+        if (widthChanged || depthChanged) {
+            if (callbacks.OnRefreshList) callbacks.OnRefreshList();
+        }
+
+        ImGui::EndTable();
     }
 
-    // Wealth Type per SC4: $, $$, $$$
-    const char *wealthTypes[] = {"Any", "Low ($)", "Medium ($$)", "High ($$$)"};
-    int currentWealth = (filterWealthType == 0xFF) ? 0 : (filterWealthType + 1);
-    if (ImGui::Combo("Wealth", &currentWealth, wealthTypes, IM_ARRAYSIZE(wealthTypes))) {
-        filterWealthType = (currentWealth == 0) ? 0xFF : (currentWealth - 1);
-        if (callbacks.OnRefreshList) callbacks.OnRefreshList();
-    }
+    ImGui::PopStyleVar(2);
 
-    // Size sliders
-    ImGui::Text("Size Range:");
-    if (ImGui::SliderInt("Min Width", (int *) &minSizeX, 1, 16) |
-        ImGui::SliderInt("Max Width", (int *) &maxSizeX, 1, 16) |
-        ImGui::SliderInt("Min Depth", (int *) &minSizeZ, 1, 16) |
-        ImGui::SliderInt("Max Depth", (int *) &maxSizeZ, 1, 16)) {
-        if (callbacks.OnRefreshList) callbacks.OnRefreshList();
-    }
-
-    // Search
-    if (ImGui::InputText("Search", searchBuffer, sizeof(searchBuffer))) {
-        if (callbacks.OnRefreshList) callbacks.OnRefreshList();
-    }
-
-    // Occupant Group multiselect with tree groups based on prefix before ':' in the display name
     if (ImGui::CollapsingHeader("Occupant Groups")) {
         RenderOccupantGroupFilter();
     }
 
-    if (ImGui::Button("Clear Filters")) {
+    if (ImGui::InputText("Search", searchBuffer, sizeof(searchBuffer))) {
+        if (callbacks.OnRefreshList) callbacks.OnRefreshList();
+    }
+
+    if (ImGui::Button("Clear filters")) {
         filterZoneType = 0xFF;
         filterWealthType = 0xFF;
         minSizeX = 1; maxSizeX = 16;
@@ -205,16 +225,7 @@ void AdvancedLotPlopUI::RenderLotList() {
 
                 // Icon column
                 ImGui::TableSetColumnIndex(0);
-                if (entry.iconSRV && entry.iconWidth > 0 && entry.iconHeight > 0) {
-                    // Lot PNG icons are 176x44 made of four 44x44 states; show the second 44x44 (enabled) [pixels 44..88]
-                    float u1 = (entry.iconWidth > 0) ? (44.0f / (float)entry.iconWidth) : 0.0f;
-                    float v1 = 0.0f;
-                    float u2 = (entry.iconWidth > 0) ? (88.0f / (float)entry.iconWidth) : 0.0f;
-                    float v2 = (entry.iconHeight > 0) ? (44.0f / (float)entry.iconHeight) : 0.0f;
-                    ImGui::Image((ImTextureID)entry.iconSRV, ImVec2(44, 44), ImVec2(u1, v1), ImVec2(u2, v2));
-                } else {
-                    ImGui::Dummy(ImVec2(44, 44));
-                }
+                RenderIconForEntry(entry);
 
                 // ID column + selection behavior spanning the row
                 ImGui::TableSetColumnIndex(1);
@@ -237,6 +248,19 @@ void AdvancedLotPlopUI::RenderLotList() {
         }
 
         ImGui::EndTable();
+    }
+}
+
+void AdvancedLotPlopUI::RenderIconForEntry(LotConfigEntry entry) {
+    if (entry.iconSRV && entry.iconWidth > 0 && entry.iconHeight > 0) {
+        // Lot PNG icons are 176x44 made of four 44x44 states; show the second 44x44 (enabled) [pixels 44..88]
+        float u1 = (entry.iconWidth > 0) ? (44.0f / (float)entry.iconWidth) : 0.0f;
+        float v1 = 0.0f;
+        float u2 = (entry.iconWidth > 0) ? (88.0f / (float)entry.iconWidth) : 0.0f;
+        float v2 = (entry.iconHeight > 0) ? (44.0f / (float)entry.iconHeight) : 0.0f;
+        ImGui::Image((ImTextureID)entry.iconSRV, ImVec2(44, 44), ImVec2(u1, v1), ImVec2(u2, v2));
+    } else {
+        ImGui::Dummy(ImVec2(44, 44));
     }
 }
 

@@ -52,6 +52,10 @@
 #include "cIGZPersistResourceKeyList.h"
 #include "cIGZVariant.h"
 #include "cISCProperty.h"
+#include "cIGZCommandServer.h"
+#include "cIGZCommandParameterSet.h"
+#include "cIGZWin.h"
+#include "cRZBaseVariant.h"
 #include "PersistResourceKeyFilterByInstance.h"
 #include "exemplar/ExemplarUtil.h"
 #include "exemplar/PropertyUtil.h"
@@ -144,6 +148,27 @@ public:
         lotConfigCache.clear();
         cacheInitialized = false;
 
+        if (pSC4App && pMS2) {
+            constexpr uint32_t kGZWin_WinSC4App = 0x6104489A;
+            constexpr uint32_t kGZWin_SC4View3DWin = 0x9a47b417;
+            constexpr uint32_t kGZIID_cISC4View3DWin = 0xFA47B3F9;
+
+            cIGZWin* pMainWindow = pSC4App->GetMainWindow();
+
+            if (pMainWindow) {
+                cIGZWin* pWinSC4App = pMainWindow->GetChildWindowFromID(kGZWin_WinSC4App);
+
+                if (pWinSC4App) {
+                    if (pWinSC4App->GetChildAs(
+                        kGZWin_SC4View3DWin,
+                        kGZIID_cISC4View3DWin,
+                        reinterpret_cast<void**>(&pView3D))) {
+                            LOG_DEBUG("Set pView3D");
+                        }
+                }
+            }
+        }
+
         // Get the game window using Windows API - simpler and more reliable
         if (!imGuiInitialized) {
             // Find the main SimCity 4 window
@@ -171,6 +196,9 @@ public:
                 LOG_ERROR("Failed to find SimCity 4 window");
             }
         }
+
+        // Perform initial lot list population
+        // RefreshLotList();
     }
 
     bool PreAppInit() override {
@@ -178,6 +206,7 @@ public:
     }
 
     bool PostAppInit() override {
+        cISC4AppPtr pSC4App;
         cIGZMessageServer2Ptr pMS2;
         LOG_INFO("PostAppInit: Initializing AdvancedLotPlopDllDirector");
 
@@ -416,6 +445,9 @@ private:
                                                         entry.iconSRV = srv;
                                                         entry.iconWidth = w;
                                                         entry.iconHeight = h;
+                                                        LOG_DEBUG("Created SRV for lot config ID 0x{:X}", lotConfigID);
+                                                    } else {
+                                                        LOG_ERROR("Failed to create SRV from PNG memory");
                                                     }
                                                 }
                                             }
@@ -626,18 +658,46 @@ private:
     }
 
     void TriggerLotPlop(uint32_t lotID) {
-        // This won't work cuz I only later realized lotplop actually opens the dialog and doesn't let you plop directly
-        char cheatString[64];
-        snprintf(cheatString, sizeof(cheatString), "lotplop 0x%08X", lotID);
-
-        cRZBaseString cheatStr;
-        cheatStr.FromChar(cheatString);
-
-        uint32_t cheatID = kLotPlopCheatID;
-        if (pCheatCodeManager->DoesCheatCodeMatch(cheatStr, cheatID)) {
-            // Send the cheat notification - this activates the game's plop tool
-            pCheatCodeManager->SendCheatNotifications(cheatStr, cheatID);
+        // Use command 0xec3e82f8 (same as keyboard shortcuts) to activate placement tool
+        if (!pView3D) {
+            LOG_WARN("pView3D not available for lot placement");
+            return;
         }
+
+        cIGZCommandServerPtr pCmdServer;
+        if (!pCmdServer) {
+            LOG_ERROR("Command server not available");
+            return;
+        }
+
+        // Create parameter sets
+        cIGZCommandParameterSet* pInput = nullptr;
+        cIGZCommandParameterSet* pOutput = nullptr;
+
+        if (!pCmdServer->CreateCommandParameterSet(&pInput) ||
+            !pCmdServer->CreateCommandParameterSet(&pOutput)) {
+            LOG_ERROR("Failed to create command parameter sets");
+            return;
+        }
+
+        // Set building ID as uint32 array in parameter 0 (handler expects array)
+        auto var = cRZBaseVariant();
+        uint32_t lotArray[2] = { lotID, true }; // Second argument is true
+        var.RefUint32(lotArray, 2);  // Array of 1 element
+        pInput->SetParameter(0, var);
+
+        // Send placement command (0xec3e82f8 = activate building placement tool)
+        bool success = pView3D->ProcessCommand(0xec3e82f8, *pInput, *pOutput);
+
+        if (success) {
+            LOG_INFO("Activated placement tool for lot 0x{:X}", lotID);
+        } else {
+            LOG_WARN("Failed to activate placement tool for lot 0x{:X}", lotID);
+        }
+
+        // Cleanup
+        pInput->Release();
+        pOutput->Release();
     }
 
     bool DoMessage(cIGZMessage2 *pMsg) {

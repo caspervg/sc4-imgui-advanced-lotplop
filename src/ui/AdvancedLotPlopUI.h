@@ -53,6 +53,9 @@ public:
 private:
     void RenderFilters();
     void RenderLotList();
+
+    static void RenderIconForEntry(LotConfigEntry entry);
+
     void RenderDetails();
     void RenderOccupantGroupFilter();
 

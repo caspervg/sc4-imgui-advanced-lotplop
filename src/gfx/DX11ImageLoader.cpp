@@ -1,7 +1,6 @@
 #include "DX11ImageLoader.h"
 #include <d3d11.h>
 #include <wincodec.h>
-#include <Unknwn.h>
 #include <wil/com.h>
 
 namespace gfx {

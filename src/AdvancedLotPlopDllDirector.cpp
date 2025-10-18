@@ -54,6 +54,8 @@
 #include "cISCProperty.h"
 #include "PersistResourceKeyFilterByInstance.h"
 #include "exemplar/ExemplarUtil.h"
+#include "ui/LotConfigEntry.h"
+#include "ui/AdvancedLotPlopUI.h"
 
 class AdvancedLotPlopDllDirector;
 static constexpr uint32_t kMessageCheatIssued = 0x230E27AC;
@@ -64,14 +66,6 @@ static constexpr uint32_t kAdvancedLotPlopDirectorID = 0xF78115BE;
 // Randomly generated ID to avoid conflicts with other mods
 
 static constexpr uint32_t kLotPlopCheatID = 0x4AC096C6;
-
-struct LotConfigEntry {
-    uint32_t id;
-    std::string name;
-    uint32_t sizeX, sizeZ;
-    uint16_t minCapacity, maxCapacity;
-    uint8_t growthStage;
-};
 
 AdvancedLotPlopDllDirector *GetLotPlopDirector();
 
@@ -91,6 +85,14 @@ public:
         LOG_INFO("SC4AdvancedLotPlop v{}", PLUGIN_VERSION_STR);
 
         searchBuffer[0] = '\0';
+
+        // Wire UI callbacks and data pointers
+        AdvancedLotPlopUICallbacks cb{};
+        cb.OnPlop = [](uint32_t lotID){ if (GetLotPlopDirector()) GetLotPlopDirector()->TriggerLotPlop(lotID); };
+        cb.OnBuildCache = [](){ if (GetLotPlopDirector()) GetLotPlopDirector()->BuildLotConfigCache(); };
+        cb.OnRefreshList = [](){ if (GetLotPlopDirector()) GetLotPlopDirector()->RefreshLotList(); };
+        mUI.SetCallbacks(cb);
+        mUI.SetLotEntries(&lotEntries);
     }
 
     ~AdvancedLotPlopDllDirector() override {
@@ -122,7 +124,7 @@ public:
         cIGZApp *pApp = mpFrameWork->Application();
 
         pCity = static_cast<cISC4City *>(pStandardMsg->GetVoid1());
-
+        mUI.SetCity(pCity);
         lotConfigCache.clear();
         cacheInitialized = false;
 
@@ -195,17 +197,8 @@ public:
     }
 
     void RenderUI() {
-        if (!showWindow) return;
-
-        ImGui::SetNextWindowSize(ImVec2(700, 600), ImGuiCond_FirstUseEver);
-        if (ImGui::Begin("Advanced LotPlop", &showWindow)) {
-            RenderFilters();
-            ImGui::Separator();
-            RenderLotList();
-            ImGui::Separator();
-            RenderDetails();
-        }
-        ImGui::End();
+        // Delegate to UI class
+        mUI.Render();
     }
 
 private:
@@ -213,6 +206,11 @@ private:
     cISC4City *pCity;
     cISC4View3DWin *pView3D;
     cIGZMessageServer2 *pMS2;
+
+    // UI facade
+    AdvancedLotPlopUI mUI;
+
+    // Legacy state retained for data and integration
     bool showWindow;
     uint8_t filterZoneType;
     uint8_t filterWealthType;
@@ -225,8 +223,8 @@ private:
     bool imGuiInitialized = false;
     bool cacheInitialized = false;
 
+    // Render logic has been moved to src/ui/AdvancedLotPlopUI
     void RenderFilters() {
-        ImGui::Text("Filters");
 
         // Zone Type
         const char *zoneTypes[] = {"Any", "Residential", "Commercial", "Industrial"};
@@ -417,8 +415,8 @@ private:
         if (!pLotConfigMgr) return;
 
         // Now just filter from cache - much faster!
-        for (uint32_t x = minSizeX; x <= maxSizeX; x++) {
-            for (uint32_t z = minSizeZ; z <= maxSizeZ; z++) {
+        for (uint32_t x = mUI.GetMinSizeX(); x <= mUI.GetMaxSizeX(); x++) {
+            for (uint32_t z = mUI.GetMinSizeZ(); z <= mUI.GetMaxSizeZ(); z++) {
                 SC4HashSet<uint32_t> configIdTable{};
                 configIdTable.Init(8);
 
@@ -434,8 +432,8 @@ private:
                         if (!pConfig || !MatchesFilters(pConfig)) continue;
 
                         // Search filter
-                        if (searchBuffer[0] != '\0') {
-                            std::string searchLower = searchBuffer;
+                        if (mUI.GetSearchBuffer()[0] != '\0') {
+                            std::string searchLower = mUI.GetSearchBuffer();
                             std::transform(searchLower.begin(), searchLower.end(),
                                            searchLower.begin(),
                                            [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
@@ -454,8 +452,9 @@ private:
     }
 
     void ToggleWindow() {
-        showWindow = !showWindow;
-        if (showWindow) {
+        bool* pShow = mUI.GetShowWindowPtr();
+        *pShow = !*pShow;
+        if (*pShow) {
             // Only rebuild cache if city changed or first time
             if (!cacheInitialized) {
                 BuildLotConfigCache();
@@ -465,14 +464,70 @@ private:
     }
 
     bool MatchesFilters(cISC4LotConfiguration *pConfig) {
-        if (filterZoneType != 0xFF) {
-            cISC4ZoneManager::ZoneType zoneType = static_cast<cISC4ZoneManager::ZoneType>(filterZoneType);
-            if (!pConfig->IsCompatibleWithZoneType(zoneType)) return false;
+        // Zone filter: UI exposes R/C/I categories, not exact zone densities.
+        // Map UI value (0=R,1=C,2=I) to the set of densities and check compatibility with any of them.
+        if (mUI.GetFilterZoneType() != 0xFF) {
+            const uint8_t zoneCategory = mUI.GetFilterZoneType();
+            bool zoneOk = false;
+            if (zoneCategory == 0) {
+                // Residential: low, medium, high
+                cISC4ZoneManager::ZoneType resZones[] = {
+                    cISC4ZoneManager::ZoneType::ResidentialLowDensity,
+                    cISC4ZoneManager::ZoneType::ResidentialMediumDensity,
+                    cISC4ZoneManager::ZoneType::ResidentialHighDensity,
+                };
+                for (auto z : resZones) {
+                    if (pConfig->IsCompatibleWithZoneType(z)) { zoneOk = true; break; }
+                }
+            } else if (zoneCategory == 1) {
+                // Commercial: low, medium, high
+                cISC4ZoneManager::ZoneType comZones[] = {
+                    cISC4ZoneManager::ZoneType::CommercialLowDensity,
+                    cISC4ZoneManager::ZoneType::CommercialMediumDensity,
+                    cISC4ZoneManager::ZoneType::CommercialHighDensity,
+                };
+                for (auto z : comZones) {
+                    if (pConfig->IsCompatibleWithZoneType(z)) { zoneOk = true; break; }
+                }
+            } else if (zoneCategory == 2) {
+                // Industrial: medium, high (Agriculture is separate and not included in generic I)
+                cISC4ZoneManager::ZoneType indZones[] = {
+                    cISC4ZoneManager::ZoneType::IndustrialMediumDensity,
+                    cISC4ZoneManager::ZoneType::IndustrialHighDensity,
+                };
+                for (auto z : indZones) {
+                    if (pConfig->IsCompatibleWithZoneType(z)) { zoneOk = true; break; }
+                }
+            } else if (zoneCategory == 3) {
+                // Agriculture
+                if (pConfig->IsCompatibleWithZoneType(cISC4ZoneManager::ZoneType::Agriculture)) zoneOk = true;
+            } else if (zoneCategory == 4) {
+                // Plopped
+                if (pConfig->IsCompatibleWithZoneType(cISC4ZoneManager::ZoneType::Plopped)) zoneOk = true;
+            } else if (zoneCategory == 5) {
+                // None
+                if (pConfig->IsCompatibleWithZoneType(cISC4ZoneManager::ZoneType::None)) zoneOk = true;
+            } else if (zoneCategory == 6) {
+                // Other: Military, Airport, Seaport, Spaceport, Landfill
+                cISC4ZoneManager::ZoneType otherZones[] = {
+                    cISC4ZoneManager::ZoneType::Military,
+                    cISC4ZoneManager::ZoneType::Airport,
+                    cISC4ZoneManager::ZoneType::Seaport,
+                    cISC4ZoneManager::ZoneType::Spaceport,
+                    cISC4ZoneManager::ZoneType::Landfill,
+                };
+                for (auto z : otherZones) {
+                    if (pConfig->IsCompatibleWithZoneType(z)) { zoneOk = true; break; }
+                }
+            }
+            if (!zoneOk) return false;
         }
 
-        if (filterWealthType != 0xFF) {
+        // Wealth filter: UI stores 0=Low,1=Medium,2=High; enum is 1..3
+        if (mUI.GetFilterWealthType() != 0xFF) {
+            const uint8_t wealthIdx = mUI.GetFilterWealthType();
             cISC4BuildingOccupant::WealthType wealthType =
-                    static_cast<cISC4BuildingOccupant::WealthType>(filterWealthType);
+                static_cast<cISC4BuildingOccupant::WealthType>(wealthIdx + 1);
             if (!pConfig->IsCompatibleWithWealthType(wealthType)) return false;
         }
 

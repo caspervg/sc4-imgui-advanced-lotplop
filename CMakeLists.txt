@@ -96,6 +96,7 @@ include_directories(
 # Our source files
 set(SOURCES
     src/AdvancedLotPlopDllDirector.cpp
+    src/ui/AdvancedLotPlopUI.cpp
     ${GZCOM_SOURCES}
     ${SC4_DLL_BASICS_SOURCE_DIR}
     ${IMGUI_SOURCES}

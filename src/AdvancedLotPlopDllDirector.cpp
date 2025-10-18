@@ -53,6 +53,7 @@
 #include "cIGZVariant.h"
 #include "cISCProperty.h"
 #include "PersistResourceKeyFilterByInstance.h"
+#include "exemplar/ExemplarUtil.h"
 
 class AdvancedLotPlopDllDirector;
 static constexpr uint32_t kMessageCheatIssued = 0x230E27AC;
@@ -357,95 +358,26 @@ private:
                         LotConfigEntry entry;
                         entry.id = lotConfigID;
 
-                        // Load Lot Exemplar
-                        cRZAutoRefCount lotFilter(new PersistResourceKeyFilterByInstance(lotConfigID),
-                                                  cRZAutoRefCount<PersistResourceKeyFilterByInstance>::kAddRef);
-                        cRZAutoRefCount<cIGZPersistResourceKeyList> pLotKeyList;
-
-                        if (pRM->GetAvailableResourceList(pLotKeyList.AsPPObj(), lotFilter) > 0 && pLotKeyList) {
-                            cRZAutoRefCount<cISCPropertyHolder> pLotExemplar;
-                            // LOG_DEBUG("Found lot exemplar for config 0x{:08X}", lotConfigID);
-                            if (pRM->GetResource(pLotKeyList->GetKey(0), GZIID_cISCPropertyHolder,
-                                                 pLotExemplar.AsPPVoid(), 0, nullptr)) {
-                                for (auto potentialPropertyId = kPropertyLotObjectsBase;
-                                     potentialPropertyId < kPropertyLotObjectsBase + kPropertyLotObjectsRange;
-                                     potentialPropertyId++) {
-                                    //LOG_DEBUG("Fetching property 0x{:08X}", potentialPropertyId);
-                                    const cISCProperty *pProp = pLotExemplar->GetProperty(potentialPropertyId);
-                                    if (!pProp) continue;
-
-                                    uint32_t propID = pProp->GetPropertyID();
-
-                                    // Check if property ID is in the PropertyLotObjects range
-                                    if (propID < kPropertyLotObjectsBase ||
-                                        propID >= kPropertyLotObjectsBase + kPropertyLotObjectsRange) {
-                                        continue;
+                        // Load lot exemplar and try to get building name
+                        cRZAutoRefCount<cISCPropertyHolder> pLotExemplar;
+                        if (GetExemplarByInstance(pRM, lotConfigID, pLotExemplar)) {
+                            uint32_t buildingExemplarID = 0;
+                            if (GetLotBuildingExemplarID(pLotExemplar, buildingExemplarID)) {
+                                // Load building exemplar of the correct type
+                                cRZAutoRefCount<cISCPropertyHolder> pBuildingExemplar;
+                                if (GetExemplarByInstanceAndType(
+                                    pRM,
+                                    buildingExemplarID,
+                                    kPropertyExemplarType,
+                                    kPropertyExemplarTypeBuilding,
+                                    pBuildingExemplar
+                                )) {
+                                    cRZAutoRefCount<cIGZString> localizedName;
+                                    if (GetLocalizedBuildingName(pRM, pBuildingExemplar, localizedName)) {
+                                        cRZBaseString techName;
+                                        pConfig->GetName(techName);
+                                        entry.name = std::string(localizedName->Data()) + " (" + techName.Data() + ")";
                                     }
-
-                                    const cIGZVariant *pVariant = pProp->GetPropertyValue();
-                                    if (!pVariant || pVariant->GetType() != cIGZVariant::Uint32Array ||
-                                        pVariant->GetCount() < 13)
-                                        continue;
-
-                                    const uint32_t *pData = pVariant->RefUint32();
-                                    if (pData[0] != 0) continue; // Not a building (type must be 0)
-
-                                    uint32_t buildingExemplarID = pData[12];
-                                    if (buildingExemplarID == 0) break;
-
-                                    // LOG_DEBUG("Lot 0x{:08X}: Found building exemplar 0x{:08X}", lotConfigID, buildingExemplarID);
-
-                                    // Load Building Exemplar
-                                    cRZAutoRefCount buildingFilter(
-                                        new PersistResourceKeyFilterByInstance(buildingExemplarID),
-                                        cRZAutoRefCount<PersistResourceKeyFilterByInstance>::kAddRef);
-                                    cRZAutoRefCount<cIGZPersistResourceKeyList> pBuildingKeyList;
-
-                                    if (pRM->GetAvailableResourceList(pBuildingKeyList.AsPPObj(), buildingFilter) > 0 &&
-                                        pBuildingKeyList) {
-                                        //LOG_DEBUG("Num of buildings: {}", pBuildingKeyList->Size());
-                                        cRZAutoRefCount<cISCPropertyHolder> pPotentialExemplar;
-                                        for (auto i = 0; i < pBuildingKeyList->Size(); i++) {
-                                            if (pRM->GetResource(pBuildingKeyList->GetKey(i), GZIID_cISCPropertyHolder,
-                                                                 pPotentialExemplar.AsPPVoid(), 0, nullptr)) {
-                                                //LOG_DEBUG("Checking if exemplar 0x{:08X} index {} is building", buildingExemplarID, i);
-                                                // Verify it's a building exemplar
-                                                const cISCProperty *pExemplarTypeProp =
-                                                        pPotentialExemplar->GetProperty(kPropertyExemplarType);
-                                                if (!pExemplarTypeProp)
-                                                    continue;
-
-                                                const cIGZVariant *pExemplarTypeVariant = pExemplarTypeProp->GetPropertyValue();
-                                                if (!pExemplarTypeVariant || pExemplarTypeVariant->GetType() != cIGZVariant::Uint32)
-                                                    continue;
-
-                                                const uint32_t pTypeValue = pExemplarTypeVariant->GetValUint32();
-
-                                                if (pTypeValue == kPropertyExemplarTypeBuilding) {
-                                                    // LOG_DEBUG("Verified building exemplar 0x{:08X}",
-                                                    //           buildingExemplarID);
-                                                    StringResourceKey nameKey;
-                                                    if (SCPropertyUtil::GetPropertyValue(pPotentialExemplar,
-                                                        kPropertyUserVisibleNameKey, nameKey)) {
-                                                        cRZAutoRefCount<cIGZString> localizedName;
-                                                        // LOG_DEBUG("Found UVNK: Group=0x{:08X} Instance=0x{:08X}",
-                                                        //           nameKey.groupID, nameKey.instanceID);
-                                                        if (StringResourceManager::GetLocalizedString(
-                                                            nameKey, localizedName)) {
-                                                            cRZBaseString techName;
-                                                            pConfig->GetName(techName);
-                                                            entry.name =
-                                                                    std::string(localizedName->Data()) + " (" + techName
-                                                                    .Data() + ")";
-                                                            // LOG_DEBUG("  Loaded name: {}", entry.name);
-                                                        }
-                                                    }
-                                                    break;
-                                                }
-                                            }
-                                        }
-                                    }
-                                    break; // Found building, stop searching
                                 }
                             }
                         }

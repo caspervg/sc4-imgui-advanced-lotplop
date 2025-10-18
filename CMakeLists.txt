@@ -101,6 +101,7 @@ set(SOURCES
     ${IMGUI_SOURCES}
     src/utils/Logger.cpp
     src/utils/D3D11Hook.cpp
+    src/exemplar/ExemplarUtil.cpp
 )
 
 set(HEADERS
@@ -109,6 +110,7 @@ set(HEADERS
     ${IMGUI_HEADERS}
     ${CMAKE_SOURCE_DIR}/src/utils/Logger.h
     ${CMAKE_SOURCE_DIR}/src/utils/D3D11Hook.h
+    ${CMAKE_SOURCE_DIR}/src/exemplar/ExemplarUtil.h
 )
 
 # Create the main DLL with explicit exports

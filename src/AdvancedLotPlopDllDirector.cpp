@@ -59,6 +59,7 @@
 #include "gfx/DX11ImageLoader.h"
 #include "ui/LotConfigEntry.h"
 #include "ui/AdvancedLotPlopUI.h"
+#include "utils/Config.h"
 
 class AdvancedLotPlopDllDirector;
 static constexpr uint32_t kMessageCheatIssued = 0x230E27AC;
@@ -86,6 +87,9 @@ public:
           selectedLotIID(0) {
         Logger::Initialize("SC4AdvancedLotPlop");
         LOG_INFO("SC4AdvancedLotPlop v{}", PLUGIN_VERSION_STR);
+
+        // Load config (occupant group mapping)
+        Config::LoadOnce();
 
         searchBuffer[0] = '\0';
 
@@ -390,6 +394,14 @@ private:
                                         entry.name = std::string(displayName.Data()) + " (" + techName.Data() + ")";
                                     }
 
+                                    // Description (Item Description)
+                                    {
+                                        cRZBaseString desc;
+                                        if (PropertyUtil::GetItemDescription(pBuildingExemplar, desc)) {
+                                            entry.description = desc.Data();
+                                        }
+                                    }
+
                                     // Try to load Item Icon PNG and create SRV
                                     uint32_t iconInstance = 0;
                                     if (ExemplarUtil::GetItemIconInstance(pBuildingExemplar, iconInstance)) {
@@ -404,6 +416,24 @@ private:
                                                         entry.iconSRV = srv;
                                                         entry.iconWidth = w;
                                                         entry.iconHeight = h;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    // Occupant Groups
+                                    {
+                                        constexpr uint32_t kOccupantGroupProperty = 0xAA1DD396;
+                                        const cISCProperty* prop = pBuildingExemplar->GetProperty(kOccupantGroupProperty);
+                                        if (prop) {
+                                            const cIGZVariant* val = prop->GetPropertyValue();
+                                            if (val && val->GetType() == cIGZVariant::Type::Uint32Array) {
+                                                uint32_t count = val->GetCount();
+                                                const uint32_t* pVals = val->RefUint32();
+                                                if (pVals && count > 0) {
+                                                    for (uint32_t i = 0; i < count; ++i) {
+                                                        entry.occupantGroups.insert(pVals[i]);
                                                     }
                                                 }
                                             }
@@ -473,7 +503,26 @@ private:
                             std::transform(nameLower.begin(), nameLower.end(),
                                            nameLower.begin(),
                                            [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-                            if (nameLower.find(searchLower) == std::string::npos) continue;
+                            // Match against name OR description
+                            if (nameLower.find(searchLower) == std::string::npos) {
+                                std::string descLower = cachedEntry.description;
+                                std::transform(descLower.begin(), descLower.end(),
+                                               descLower.begin(),
+                                               [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+                                if (descLower.find(searchLower) == std::string::npos) continue;
+                            }
+                        }
+
+                        // Occupant group filter (Any-match)
+                        const auto& selGroups = mUI.GetSelectedOccupantGroups();
+                        if (!selGroups.empty()) {
+                            bool any = false;
+                            for (uint32_t g : selGroups) {
+                                if (cachedEntry.occupantGroups.count(g) != 0) {
+                                    any = true; break;
+                                }
+                            }
+                            if (!any) continue;
                         }
 
                         lotEntries.push_back(cachedEntry);

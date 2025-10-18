@@ -37,4 +37,9 @@ namespace PropertyUtil
     bool GetUserVisibleName(
         const cISCPropertyHolder* pPropertyHolder,
         cRZAutoRefCount<cIGZString>& name);
+
+    // Resolves Item Description from either a localized LTEXT key or a plain string.
+    bool GetItemDescription(
+        const cISCPropertyHolder* pPropertyHolder,
+        cIGZString& description);
 };

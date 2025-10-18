@@ -42,6 +42,7 @@ public:
     uint32_t GetMinSizeX() const; uint32_t GetMaxSizeX() const;
     uint32_t GetMinSizeZ() const; uint32_t GetMaxSizeZ() const;
     const char* GetSearchBuffer() const;
+    const std::vector<uint32_t>& GetSelectedOccupantGroups() const { return selectedOccupantGroups; }
 
     // Render entrypoint (assumes ImGui context is active)
     void Render();
@@ -53,6 +54,7 @@ private:
     void RenderFilters();
     void RenderLotList();
     void RenderDetails();
+    void RenderOccupantGroupFilter();
 
     AdvancedLotPlopUICallbacks callbacks{};
 
@@ -69,4 +71,7 @@ private:
     const std::vector<LotConfigEntry>* lotEntries = nullptr; // not owned
 
     uint32_t selectedLotIID = 0;
+
+    // Advanced filters
+    std::vector<uint32_t> selectedOccupantGroups; // chosen in UI
 };

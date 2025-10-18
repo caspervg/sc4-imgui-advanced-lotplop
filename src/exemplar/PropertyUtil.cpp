@@ -131,3 +131,36 @@ bool PropertyUtil::GetUserVisibleName(
 {
 	return TryGetUserVisibleName(pPropertyHolder, name);
 }
+
+bool PropertyUtil::GetItemDescription(
+    const cISCPropertyHolder* pPropertyHolder,
+    cIGZString& description)
+{
+    if (!pPropertyHolder)
+        return false;
+
+    bool result = false;
+
+    // 1) Try the localized LTEXT key first
+    // Item Description Key (Uint32[3] -> T/G/I, but we use Group+Instance for StringResourceKey)
+    constexpr uint32_t kItemDescriptionKeyProperty = 0xCA416AB5;
+    StringResourceKey key{};
+    if (SCPropertyUtil::GetPropertyValue(pPropertyHolder, kItemDescriptionKeyProperty, key))
+    {
+        cRZAutoRefCount<cIGZString> localized;
+        if (StringResourceManager::GetLocalizedString(key, localized))
+        {
+            description.Copy(*localized);
+            result = true;
+        }
+    }
+
+    // 2) Fallback to a plain string property if present
+    if (!result)
+    {
+        constexpr uint32_t kItemDescriptionStringProperty = 0x8A2602A9; // Item Description
+        result = SCPropertyUtil::GetPropertyValue(pPropertyHolder, kItemDescriptionStringProperty, description);
+    }
+
+    return result;
+}

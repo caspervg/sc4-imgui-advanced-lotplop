@@ -105,6 +105,7 @@ set(SOURCES
     src/exemplar/ExemplarUtil.cpp
     src/exemplar/IconResourceUtil.cpp
     src/gfx/DX11ImageLoader.cpp
+    src/utils/Config.cpp
 )
 
 set(HEADERS

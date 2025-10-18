@@ -103,6 +103,8 @@ set(SOURCES
     src/utils/Logger.cpp
     src/utils/D3D11Hook.cpp
     src/exemplar/ExemplarUtil.cpp
+    src/exemplar/IconResourceUtil.cpp
+    src/gfx/DX11ImageLoader.cpp
 )
 
 set(HEADERS
@@ -140,7 +142,7 @@ target_link_libraries(${PROJECT_NAME}
 
 # Windows-specific libraries
 if(WIN32)
-    target_link_libraries(${PROJECT_NAME} PRIVATE kernel32 user32 Version d3d11 dxgi)
+    target_link_libraries(${PROJECT_NAME} PRIVATE kernel32 user32 Version d3d11 dxgi windowscodecs)
 endif()
 
 # Set output properties

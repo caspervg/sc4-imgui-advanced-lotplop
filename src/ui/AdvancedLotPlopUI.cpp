@@ -1,15 +1,8 @@
 #include "AdvancedLotPlopUI.h"
 #include "../vendor/imgui/imgui.h"
+#include "LotConfigEntry.h"
 
 #include <algorithm>
-
-struct LotConfigEntry {
-    uint32_t id;
-    std::string name;
-    uint32_t sizeX, sizeZ;
-    uint16_t minCapacity, maxCapacity;
-    uint8_t growthStage;
-};
 
 AdvancedLotPlopUI::AdvancedLotPlopUI() {
     searchBuffer[0] = '\0';
@@ -113,8 +106,9 @@ void AdvancedLotPlopUI::RenderLotList() {
     size_t count = lotEntries ? lotEntries->size() : 0;
     ImGui::Text("Lot Configurations (%zu found)", count);
 
-    if (ImGui::BeginTable("LotTable", 3,
+    if (ImGui::BeginTable("LotTable", 4,
                           ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY)) {
+        ImGui::TableSetupColumn("Icon", ImGuiTableColumnFlags_WidthFixed, 56.0f);
         ImGui::TableSetupColumn("ID", ImGuiTableColumnFlags_WidthFixed, 80);
         ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch);
         ImGui::TableSetupColumn("Size", ImGuiTableColumnFlags_WidthFixed, 60);
@@ -123,20 +117,33 @@ void AdvancedLotPlopUI::RenderLotList() {
         if (lotEntries) {
             for (const auto &entry: *lotEntries) {
                 ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0);
 
+                // Icon column
+                ImGui::TableSetColumnIndex(0);
+                if (entry.iconSRV && entry.iconWidth > 0 && entry.iconHeight > 0) {
+                    // Lot PNG icons are 176x44 made of four 44x44 states; show the second 44x44 (enabled) [pixels 44..88]
+                    float u1 = (entry.iconWidth > 0) ? (44.0f / (float)entry.iconWidth) : 0.0f;
+                    float v1 = 0.0f;
+                    float u2 = (entry.iconWidth > 0) ? (88.0f / (float)entry.iconWidth) : 0.0f;
+                    float v2 = (entry.iconHeight > 0) ? (44.0f / (float)entry.iconHeight) : 0.0f;
+                    ImGui::Image((ImTextureID)entry.iconSRV, ImVec2(44, 44), ImVec2(u1, v1), ImVec2(u2, v2));
+                } else {
+                    ImGui::Dummy(ImVec2(44, 44));
+                }
+
+                // ID column + selection behavior spanning the row
+                ImGui::TableSetColumnIndex(1);
                 bool isSelected = (entry.id == selectedLotIID);
                 char label[32];
                 snprintf(label, sizeof(label), "0x%08X", entry.id);
-
                 if (ImGui::Selectable(label, isSelected, ImGuiSelectableFlags_SpanAllColumns)) {
                     selectedLotIID = entry.id;
                 }
 
-                ImGui::TableSetColumnIndex(1);
+                ImGui::TableSetColumnIndex(2);
                 ImGui::Text("%s", entry.name.c_str());
 
-                ImGui::TableSetColumnIndex(2);
+                ImGui::TableSetColumnIndex(3);
                 ImGui::Text("%ux%u", entry.sizeX, entry.sizeZ);
             }
         }

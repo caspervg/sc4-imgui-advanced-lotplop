@@ -55,6 +55,8 @@
 #include "PersistResourceKeyFilterByInstance.h"
 #include "exemplar/ExemplarUtil.h"
 #include "exemplar/PropertyUtil.h"
+#include "exemplar/IconResourceUtil.h"
+#include "gfx/DX11ImageLoader.h"
 #include "ui/LotConfigEntry.h"
 #include "ui/AdvancedLotPlopUI.h"
 
@@ -98,6 +100,15 @@ public:
 
     ~AdvancedLotPlopDllDirector() override {
         LOG_INFO("~AdvancedLotPlopDllDirector()");
+
+        // Release cached icon SRVs
+        for (auto &kv : lotConfigCache) {
+            auto &e = kv.second;
+            if (e.iconSRV) {
+                e.iconSRV->Release();
+                e.iconSRV = nullptr;
+            }
+        }
 
         if (imGuiInitialized) {
             ImGui_ImplDX11_Shutdown();
@@ -377,6 +388,26 @@ private:
                                         cRZBaseString techName;
                                         pConfig->GetName(techName);
                                         entry.name = std::string(displayName.Data()) + " (" + techName.Data() + ")";
+                                    }
+
+                                    // Try to load Item Icon PNG and create SRV
+                                    uint32_t iconInstance = 0;
+                                    if (ExemplarUtil::GetItemIconInstance(pBuildingExemplar, iconInstance)) {
+                                        std::vector<uint8_t> pngBytes;
+                                        if (ExemplarUtil::LoadPNGByInstance(pRM, iconInstance, pngBytes)) {
+                                            if (!pngBytes.empty()) {
+                                                ID3D11Device* device = D3D11Hook::GetDevice();
+                                                if (device) {
+                                                    ID3D11ShaderResourceView* srv = nullptr;
+                                                    int w = 0, h = 0;
+                                                    if (gfx::CreateSRVFromPNGMemory(pngBytes.data(), pngBytes.size(), device, &srv, &w, &h)) {
+                                                        entry.iconSRV = srv;
+                                                        entry.iconWidth = w;
+                                                        entry.iconHeight = h;
+                                                    }
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }

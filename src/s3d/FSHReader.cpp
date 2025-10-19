@@ -61,8 +61,8 @@ bool Reader::Parse(const uint8_t* buffer, size_t bufferSize, File& outFile) {
 	outFile.bitmaps.reserve(outFile.header.numEntries);
 
 	for (uint32_t i = 0; i < outFile.header.numEntries; ++i) {
-		// Seek to bitmap offset
-		const uint8_t* bitmapPtr = buffer + directory[i].offset;
+		// Seek to bitmap offset (use dataPtr instead of buffer to handle decompressed data)
+		const uint8_t* bitmapPtr = dataPtr + directory[i].offset;
 		if (bitmapPtr >= end) {
 			LOG_ERROR("Invalid bitmap offset: {}", directory[i].offset);
 			return false;
@@ -82,25 +82,33 @@ bool Reader::Parse(const uint8_t* buffer, size_t bufferSize, File& outFile) {
 }
 
 bool Reader::ParseBitmap(const uint8_t*& ptr, const uint8_t* end, Bitmap& outBitmap) {
-	// Read bitmap header
+	// Read bitmap header (based on FshDatIO reference implementation)
 	BitmapHeader header;
-	if (!ReadValue(ptr, end, header.code)) return false;
-	if (!ReadValue(ptr, end, header.width24)) return false;
-	if (!ReadValue(ptr, end, header.height24)) return false;
-	if (!ReadBytes(ptr, end, header.misc, 3)) return false;
+	if (!ReadValue(ptr, end, header.code)) return false;     // 4 bytes
+	if (!ReadValue(ptr, end, header.width)) return false;    // 2 bytes
+	if (!ReadValue(ptr, end, header.height)) return false;   // 2 bytes
 
-	outBitmap.code = header.code;
-	outBitmap.width = header.GetWidth();
-	outBitmap.height = header.GetHeight();
+	// Read misc data (4 x 2 bytes)
+	for (int i = 0; i < 4; ++i) {
+		if (!ReadValue(ptr, end, header.misc[i])) return false;
+	}
 
-	// Skip 2 bytes (padding/reserved)
-	if (!SkipBytes(ptr, end, 2)) return false;
+	// Extract actual format code (mask off compression flag in high byte)
+	outBitmap.code = static_cast<uint8_t>(header.code & 0x7F);
+	outBitmap.width = header.width;
+	outBitmap.height = header.height;
+
+	LOG_DEBUG("FSH bitmap header: code=0x{:08X} (format=0x{:02X}), width={}, height={}",
+	          header.code, outBitmap.code, outBitmap.width, outBitmap.height);
 
 	// Calculate expected data size
 	size_t dataSize = outBitmap.GetExpectedDataSize();
 
+	LOG_DEBUG("FSH expected data size: {} bytes (code=0x{:02X})", dataSize, outBitmap.code);
+
 	if (dataSize == 0) {
-		LOG_ERROR("Unknown FSH format code: 0x{:02X}", outBitmap.code);
+		LOG_ERROR("Unknown FSH format code: 0x{:02X} (width={}, height={})",
+		          outBitmap.code, outBitmap.width, outBitmap.height);
 		return false;
 	}
 
@@ -422,15 +430,15 @@ ID3D11ShaderResourceView* Reader::LoadTextureFromResourceManager(
 	// Create resource key
 	cGZPersistResourceKey key(FSH_TYPE_ID, groupID, instanceID);
 
-	// Get resource from ResourceManager
-	cRZAutoRefCount<cIGZPersistDBRecord> record;
-	constexpr uint32_t kGZIID_cIGZPersistDBRecord = 0x24A823B5;
-
-	if (!pRM->GetResource(key, kGZIID_cIGZPersistDBRecord, record.AsPPVoid(), 0, nullptr)) {
+	// Open DB record using OpenDBRecord (same pattern as S3D loading)
+	cIGZPersistDBRecord* pRecord = nullptr;
+	if (!pRM->OpenDBRecord(key, &pRecord, false)) {
 		LOG_WARN("FSH texture not found: type=0x{:08X}, group=0x{:08X}, instance=0x{:08X}",
 		         FSH_TYPE_ID, groupID, instanceID);
 		return nullptr;
 	}
+
+	cRZAutoRefCount<cIGZPersistDBRecord> record(pRecord);
 
 	// Get data size
 	uint32_t dataSize = record->GetSize();

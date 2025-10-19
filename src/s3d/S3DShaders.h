@@ -33,13 +33,20 @@ PS_INPUT main(VS_INPUT input)
     PS_INPUT output;
     output.position = mul(float4(input.position, 1.0), viewProj);
     output.color = input.color;
-    output.uv = input.uv;
+    // Fix UV V-coordinate flip (SC4 uses top-origin, D3D11 uses bottom-origin)
+    output.uv = float2(input.uv.x, 1.0 - input.uv.y);
     return output;
 }
 )";
 
 // Pixel shader source
 constexpr const char* PIXEL_SHADER = R"(
+cbuffer MaterialConstants : register(b0)
+{
+    float alphaThreshold;
+    float3 padding;
+};
+
 Texture2D txDiffuse : register(t0);
 SamplerState samLinear : register(s0);
 
@@ -53,7 +60,14 @@ struct PS_INPUT
 float4 main(PS_INPUT input) : SV_TARGET
 {
     float4 texColor = txDiffuse.Sample(samLinear, input.uv);
-    return texColor * input.color;
+    float4 finalColor = texColor * input.color;
+
+    // Alpha test (discard pixels with alpha <= threshold, matching OpenGL's glAlphaFunc(GL_GREATER, threshold))
+    if (finalColor.a <= alphaThreshold) {
+        discard;
+    }
+
+    return finalColor;
 }
 )";
 

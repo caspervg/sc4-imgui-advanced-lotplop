@@ -36,20 +36,12 @@ struct DirectoryEntry {
 };
 
 // Bitmap header (at each entry offset)
+// Based on FshDatIO reference implementation
 struct BitmapHeader {
-	uint8_t code;            // Bitmap code (format type)
-	uint8_t width24;         // Width bits 0-7
-	uint8_t height24;        // Height bits 0-7
-	uint8_t misc[3];         // Width bit 8-15, height bit 8-15, etc.
-
-	// Decoded dimensions
-	uint16_t GetWidth() const {
-		return width24 | ((misc[0] & 0x0F) << 8);
-	}
-
-	uint16_t GetHeight() const {
-		return height24 | ((misc[0] & 0xF0) << 4);
-	}
+	uint32_t code;           // Bitmap code (format type) - 4 bytes!
+	uint16_t width;          // Width - 2 bytes
+	uint16_t height;         // Height - 2 bytes
+	uint16_t misc[4];        // Additional data - 4 x 2 bytes
 };
 
 // FSH file header

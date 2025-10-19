@@ -1135,8 +1135,10 @@ void AdvancedLotPlopDllDirector::GenerateS3DThumbnail(ID3D11Device *device, ID3D
 
     // Test prop: T=0x6534284a, G=0xc977c536, I=0x1d830000
     constexpr uint32_t S3D_TYPE = 0x6534284a;
-    constexpr uint32_t S3D_GROUP = 0xf38748f8;
-    constexpr uint32_t S3D_INSTANCE = 0x0445bb45;
+    // constexpr uint32_t S3D_GROUP = 0xf38748f8;
+    // constexpr uint32_t S3D_INSTANCE = 0x0445bb45;
+    constexpr uint32_t S3D_GROUP = 0x13a0bd51;
+    constexpr uint32_t S3D_INSTANCE = 0xd6136b79;
 
     try {
         cIGZPersistResourceManagerPtr pRM;
@@ -1186,7 +1188,8 @@ void AdvancedLotPlopDllDirector::GenerateS3DThumbnail(ID3D11Device *device, ID3D
             return;
         }
 
-        s3dKey.group = 0xd9b5e4a6; // This does nto align with RKT1 prop entry
+        s3dKey.instance += 0x400; // Highest zoom level
+        LOG_DEBUG("Using zoom 4 S3D instance: 0x{:08X}", s3dKey.instance);
 
         cIGZPersistDBRecord* pRecord = nullptr;
         if (!pRM->OpenDBRecord(s3dKey, &pRecord, false)) {
@@ -1245,7 +1248,6 @@ void AdvancedLotPlopDllDirector::GenerateS3DThumbnail(ID3D11Device *device, ID3D
 }
 
 void AdvancedLotPlopDllDirector::RenderS3DThumbnailWindow() {
-    LOG_INFO("Rendering thumbnail window...");
     if (!showS3DThumbnail) {
         return;
     }
@@ -1258,7 +1260,6 @@ void AdvancedLotPlopDllDirector::RenderS3DThumbnailWindow() {
         ImGui::Separator();
 
         if (s3dThumbnailSRV) {
-            LOG_INFO("Adding thumbnail to Image inside gui");
             ImGui::Text("Thumbnail generated:");
             ImGui::Image((ImTextureID) s3dThumbnailSRV, ImVec2(256, 256));
         } else if (s3dThumbnailGenerated) {

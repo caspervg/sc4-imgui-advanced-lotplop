@@ -24,6 +24,7 @@ Renderer::~Renderer() {
 
 	if (m_samplerState) m_samplerState->Release();
 	if (m_rasterizerState) m_rasterizerState->Release();
+	if (m_materialConstantBuffer) m_materialConstantBuffer->Release();
 	if (m_constantBuffer) m_constantBuffer->Release();
 	if (m_inputLayout) m_inputLayout->Release();
 	if (m_pixelShader) m_pixelShader->Release();
@@ -116,7 +117,7 @@ bool Renderer::CreateShaders() {
 		return false;
 	}
 
-	// Create constant buffer
+	// Create VS constant buffer
 	D3D11_BUFFER_DESC cbDesc = {};
 	cbDesc.ByteWidth = sizeof(ShaderConstants);
 	cbDesc.Usage = D3D11_USAGE_DYNAMIC;
@@ -125,7 +126,15 @@ bool Renderer::CreateShaders() {
 
 	hr = m_device->CreateBuffer(&cbDesc, nullptr, &m_constantBuffer);
 	if (FAILED(hr)) {
-		LOG_ERROR("Failed to create constant buffer: 0x{:08X}", hr);
+		LOG_ERROR("Failed to create VS constant buffer: 0x{:08X}", hr);
+		return false;
+	}
+
+	// Create PS constant buffer for material properties
+	cbDesc.ByteWidth = sizeof(MaterialConstants);
+	hr = m_device->CreateBuffer(&cbDesc, nullptr, &m_materialConstantBuffer);
+	if (FAILED(hr)) {
+		LOG_ERROR("Failed to create PS constant buffer: 0x{:08X}", hr);
 		return false;
 	}
 
@@ -240,24 +249,34 @@ bool Renderer::CreateMaterials(const Model& model, cIGZPersistResourceManager* p
 		if (gpuMat->hasTexture && pRM) {
 			uint32_t textureID = mat.textures[0].textureID;
 
-			// Try with model's group ID first, then fallback to special group
-			gpuMat->textureSRV = FSH::Reader::LoadTextureFromResourceManager(m_device, pRM, groupID, textureID);
+			// Try multiple common texture group IDs
+			const uint32_t textureGroups[] = {
+				groupID,        // Model's group ID (from S3D resource)
+				0x159787AF,     // Common prop texture group
+				0x1ABE787D,     // Another common prop texture group
+				0x13A0BD51      // Yet another texture group
+			};
 
-			if (!gpuMat->textureSRV && groupID != 0x1ABE787D) {
-				// Try special prop texture group
-				gpuMat->textureSRV = FSH::Reader::LoadTextureFromResourceManager(m_device, pRM, 0x1ABE787D, textureID);
+			for (uint32_t tryGroup : textureGroups) {
+				gpuMat->textureSRV = FSH::Reader::LoadTextureFromResourceManager(m_device, pRM, tryGroup, textureID);
+				if (gpuMat->textureSRV) {
+					LOG_DEBUG("Loaded texture 0x{:08X} from group 0x{:08X}", textureID, tryGroup);
+					break;
+				}
 			}
 
 			if (!gpuMat->textureSRV) {
-				LOG_WARN("Failed to load texture 0x{:08X} for material", textureID);
+				LOG_WARN("Failed to load texture 0x{:08X} for material (tried {} groups)", textureID, sizeof(textureGroups)/sizeof(textureGroups[0]));
+				gpuMat->hasTexture = false; // Mark as no texture so we don't try to use it
 			}
 		}
 
 		// Create blend state
+		// Only enable blending if we actually have a texture loaded
 		D3D11_BLEND_DESC blendDesc = {};
 		blendDesc.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
 
-		if (mat.flags & MAT_BLEND) {
+		if ((mat.flags & MAT_BLEND) && gpuMat->textureSRV) {
 			blendDesc.RenderTarget[0].BlendEnable = TRUE;
 			blendDesc.RenderTarget[0].SrcBlend = D3D11_BLEND_SRC_ALPHA;
 			blendDesc.RenderTarget[0].DestBlend = D3D11_BLEND_INV_SRC_ALPHA;
@@ -428,24 +447,53 @@ DirectX::XMMATRIX Renderer::CalculateViewProjMatrix() const {
 	float sizeX = m_bbMax.x - m_bbMin.x;
 	float sizeY = m_bbMax.y - m_bbMin.y;
 	float sizeZ = m_bbMax.z - m_bbMin.z;
+
+	// Handle flat/2D props (like ground textures/billboards)
+	if (sizeY < 0.1f) {
+		sizeY = max(sizeX, sizeZ) * 0.1f; // Use 10% of horizontal size as height
+	}
+
 	float maxSize = max(sizeX, sizeY);
-	maxSize = max(maxSize, sizeZ) * 1.2f; // 20% padding
+	maxSize = max(maxSize, sizeZ) * 1.5f; // 50% padding
 
-	// Create view matrix (SC4-style isometric view)
-	XMVECTOR eye = XMVectorSet(center.x, center.y + maxSize, center.z + maxSize, 1.0f);
-	XMVECTOR at = XMVectorSet(center.x, center.y, center.z, 1.0f);
-	XMVECTOR up = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
-	XMMATRIX view = XMMatrixLookAtLH(eye, at, up);
+	LOG_DEBUG("S3D bbox: center=({:.2f}, {:.2f}, {:.2f}), size=({:.2f}, {:.2f}, {:.2f}), maxSize={:.2f}",
+	          center.x, center.y, center.z, sizeX, sizeY, sizeZ, maxSize);
 
-	// Rotate for SC4-style view (45° Y, -45° X)
-	XMMATRIX rotX = XMMatrixRotationX(XMConvertToRadians(-45.0f));
-	XMMATRIX rotY = XMMatrixRotationY(XMConvertToRadians(22.5f));
-	view = rotX * rotY * view;
+	// Based on GlViewS3D.cpp reference implementation:
+	// 1. Translate to center object
+	// 2. Swap Y/Z axes (SC4 coordinate convention: stored Y is actually Z in world space)
+	// 3. Scale by 0.01 (SC4 stores coordinates in centimeters, render in meters)
+	// 4. Rotate 45° around X axis (tilt down)
+	// 5. Rotate -22.5° around Y axis (slight left rotation)
+	// 6. Flip Z axis for SC4's reversed Z coordinate
+	// 7. Orthographic projection
 
-	// Create orthographic projection
-	XMMATRIX proj = XMMatrixOrthographicLH(maxSize, maxSize, 0.1f, maxSize * 10.0f);
+	XMMATRIX model = XMMatrixIdentity();
 
-	return view * proj;
+	// Translate to center
+	//model *= XMMatrixTranslation(-center.x, -center.y, -center.z);
+
+	// Swap Y and Z axes (glVertex3f(x, z, y) in reference implementation)
+	// Create axis swap matrix: X→X, Y→Z, Z→Y
+	XMMATRIX axisSwap = XMMatrixIdentity();
+	axisSwap.r[1] = XMVectorSet(0, 0, 1, 0);  // New Y = old Z
+	axisSwap.r[2] = XMVectorSet(0, 1, 0, 0);  // New Z = old Y
+	model *= axisSwap;
+
+	// Scale from centimeters to meters (divide by 100)
+	//model *= XMMatrixScaling(0.01f, 0.01f, 0.01f);
+
+	// Rotations (in order: X then Y, matching glRotatef calls)
+	model *= XMMatrixRotationX(XMConvertToRadians(45.0f));   // Tilt down
+	//model *= XMMatrixRotationY(XMConvertToRadians(-22.5f));  // Rotate left
+
+	// Flip Z axis for SC4's coordinate system
+	model *= XMMatrixScaling(1.0f, 1.0f, -1.0f);
+
+	// Orthographic projection with large depth range
+	XMMATRIX proj = XMMatrixOrthographicLH(maxSize, maxSize, -40000.0f, 40000.0f);
+
+	return model * proj;
 }
 
 bool Renderer::ApplyMaterial(const GPUMaterial& material) {
@@ -463,6 +511,17 @@ bool Renderer::ApplyMaterial(const GPUMaterial& material) {
 		ID3D11ShaderResourceView* nullSRV = nullptr;
 		m_context->PSSetShaderResources(0, 1, &nullSRV);
 	}
+
+	// Update material constant buffer with alpha threshold
+	D3D11_MAPPED_SUBRESOURCE mapped;
+	HRESULT hr = m_context->Map(m_materialConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped);
+	if (SUCCEEDED(hr)) {
+		MaterialConstants* matConstants = static_cast<MaterialConstants*>(mapped.pData);
+		matConstants->alphaThreshold = material.alphaThreshold;
+		m_context->Unmap(m_materialConstantBuffer, 0);
+	}
+
+	m_context->PSSetConstantBuffers(0, 1, &m_materialConstantBuffer);
 
 	return true;
 }
@@ -495,6 +554,9 @@ bool Renderer::RenderFrame(int frameIdx) {
 	m_context->VSSetConstantBuffers(0, 1, &m_constantBuffer);
 
 	// Render all meshes at specified frame
+	int meshDrawCount = 0;
+	int totalTriangles = 0;
+
 	for (const auto& mesh : m_meshes) {
 		if (frameIdx >= static_cast<int>(mesh.frames.size())) {
 			LOG_WARN("Frame {} out of range for mesh {}", frameIdx, mesh.name);
@@ -526,8 +588,12 @@ bool Renderer::RenderFrame(int frameIdx) {
 
 		// Draw
 		m_context->DrawIndexed(ib->count, 0, 0);
+
+		meshDrawCount++;
+		totalTriangles += ib->count / 3;
 	}
 
+	LOG_DEBUG("Rendered {} meshes, {} triangles", meshDrawCount, totalTriangles);
 	return true;
 }
 
@@ -626,10 +692,12 @@ ID3D11ShaderResourceView* Renderer::GenerateThumbnail(int size) {
 	viewport.MaxDepth = 1.0f;
 	m_context->RSSetViewports(1, &viewport);
 
-	// Clear
-	float clearColor[4] = { 0.0f, 0.0f, 0.0f, 0.0f }; // Transparent
+	// Clear with a visible background color for thumbnails
+	float clearColor[4] = { 0.15f, 0.15f, 0.15f, 1.0f }; // Dark gray background
 	m_context->ClearRenderTargetView(rt->rtv, clearColor);
 	m_context->ClearDepthStencilView(rt->dsv, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+
+	LOG_DEBUG("Rendering to {}x{} thumbnail...", size, size);
 
 	// Render frame 0
 	RenderFrame(0);

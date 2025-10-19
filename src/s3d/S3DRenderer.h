@@ -12,10 +12,15 @@ class cIGZPersistResourceManager;
 
 namespace S3D {
 
-// Shader constant buffer
+// Shader constant buffers
 struct ShaderConstants {
 	DirectX::XMMATRIX viewProj;
 	DirectX::XMFLOAT4 padding[12]; // Pad to 256 bytes for alignment
+};
+
+struct MaterialConstants {
+	float alphaThreshold;
+	float padding[3]; // Align to 16 bytes
 };
 
 class Renderer {
@@ -96,7 +101,8 @@ private:
 	ID3D11VertexShader* m_vertexShader = nullptr;
 	ID3D11PixelShader* m_pixelShader = nullptr;
 	ID3D11InputLayout* m_inputLayout = nullptr;
-	ID3D11Buffer* m_constantBuffer = nullptr;
+	ID3D11Buffer* m_constantBuffer = nullptr;  // VS constant buffer
+	ID3D11Buffer* m_materialConstantBuffer = nullptr;  // PS constant buffer for material properties
 
 	// Default states
 	ID3D11SamplerState* m_samplerState = nullptr;

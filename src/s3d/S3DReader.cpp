@@ -125,13 +125,13 @@ bool Reader::ReadVertex(const uint8_t*& ptr, const uint8_t* end,
 	if (!ReadValue(ptr, end, outVertex.position.y)) return false;
 	if (!ReadValue(ptr, end, outVertex.position.z)) return false;
 
-	// Read color if present
+	// Read color if present (BGRA order!)
 	if (colorsNb > 0) {
-		uint8_t r, g, b, a;
-		if (!ReadValue(ptr, end, r)) return false;
-		if (!ReadValue(ptr, end, g)) return false;
-		if (!ReadValue(ptr, end, b)) return false;
-		if (!ReadValue(ptr, end, a)) return false;
+		uint8_t b, g, r, a;
+		if (!ReadValue(ptr, end, b)) return false;  // Blue first
+		if (!ReadValue(ptr, end, g)) return false;  // Green second
+		if (!ReadValue(ptr, end, r)) return false;  // Red third
+		if (!ReadValue(ptr, end, a)) return false;  // Alpha fourth
 		outVertex.color = DirectX::XMFLOAT4(r / 255.0f, g / 255.0f, b / 255.0f, a / 255.0f);
 	} else {
 		outVertex.color = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
@@ -409,11 +409,14 @@ bool Reader::ParseANIM(const uint8_t*& ptr, const uint8_t* end, Model& model) {
 
 		if (!ReadValue(ptr, end, mesh.flags)) return false;
 
-		if (nameLen > 1) {
-			mesh.name.resize(nameLen - 1); // Exclude null terminator
-			if (!ReadBytes(ptr, end, mesh.name.data(), nameLen - 1)) return false;
-			// Skip null terminator
-			if (!SkipBytes(ptr, end, 1)) return false;
+		// nameLen includes null terminator according to spec
+		if (nameLen > 0) {
+			mesh.name.resize(nameLen);
+			if (!ReadBytes(ptr, end, mesh.name.data(), nameLen)) return false;
+			// Remove null terminator if present
+			if (!mesh.name.empty() && mesh.name.back() == '\0') {
+				mesh.name.pop_back();
+			}
 		}
 
 		mesh.frames.resize(anim.frameCount);

@@ -107,6 +107,10 @@ set(SOURCES
     src/gfx/DX11ImageLoader.cpp
     src/utils/Config.cpp
     src/utils/CacheSerializer.cpp
+    src/s3d/S3DReader.cpp
+    src/s3d/FSHReader.cpp
+    src/s3d/QFSDecompressor.cpp
+    src/s3d/S3DRenderer.cpp
 )
 
 set(HEADERS

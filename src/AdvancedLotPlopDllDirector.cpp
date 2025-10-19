@@ -60,12 +60,16 @@
 #include "ui/AdvancedLotPlopUI.h"
 #include "utils/Config.h"
 #include "utils/CacheSerializer.h"
+#include "s3d/S3DReader.h"
+#include "s3d/S3DRenderer.h"
 #include <future>
 #include <deque>
 #include <fstream>
 #include <sstream>
 #include <string>
 
+#include "cIGZPersistDBRecord.h"
+#include "cIGZPersistDBSegment.h"
 #include "cIGZPersistResourceKeyList.h"
 
 class AdvancedLotPlopDllDirector;
@@ -142,6 +146,13 @@ public:
 
         lotConfigCache.clear();
         exemplarCache.clear();
+
+        // Clean up S3D thumbnail
+        if (s3dThumbnailSRV) {
+            s3dThumbnailSRV->Release();
+            s3dThumbnailSRV = nullptr;
+        }
+        s3dRenderer.reset();
 
         if (imGuiInitialized) {
             ImGui_ImplDX11_Shutdown();
@@ -315,6 +326,9 @@ public:
                 ProcessIconJobs(128);
                 // Delegate to UI class
                 mUI.Render();
+
+                // Render S3D thumbnail proof-of-concept window
+                RenderS3DThumbnailWindow();
             }
         }
     }
@@ -355,9 +369,20 @@ private:
     bool buildStarted = false;
     std::future<void> buildFuture;
 
+    // S3D thumbnail proof-of-concept
+    bool showS3DThumbnail = true;
+    ID3D11ShaderResourceView *s3dThumbnailSRV = nullptr;
+    std::unique_ptr<S3D::Renderer> s3dRenderer;
+    bool s3dThumbnailGenerated = false;
+
     void RequestIcon(uint32_t lotID);
 
     void ProcessIconJobs(uint32_t maxJobsPerFrame = 1);
+
+    // S3D thumbnail generation
+    void GenerateS3DThumbnail(ID3D11Device *device, ID3D11DeviceContext *context);
+
+    void RenderS3DThumbnailWindow();
 
     // Cache persistence
     bool LoadCacheFromDisk(const std::string &path);
@@ -622,14 +647,10 @@ private:
                                         entry.name += ")";
                                     }
 
-                                    // Description: Skip during initial cache build for performance
-                                    // Only loaded lazily if/when user performs a search
-                                    // {
-                                    //     cRZBaseString desc;
-                                    //     if (PropertyUtil::GetItemDescription(pBuildingExemplar, desc)) {
-                                    //         entry.description = desc.Data();
-                                    //     }
-                                    // }
+                                    cRZBaseString desc;
+                                    if (PropertyUtil::GetItemDescription(pBuildingExemplar, desc)) {
+                                        entry.description = desc.Data();
+                                    }
 
                                     // Store Item Icon PNG instance ID for lazy loading later
                                     uint32_t iconInstance = 0;
@@ -901,15 +922,15 @@ private:
         cIGZCommandServerPtr pCmdServer;
         if (!pCmdServer) return;
 
-        cIGZCommandParameterSet* pCmd1 = nullptr;
-        cIGZCommandParameterSet* pCmd2 = nullptr;
+        cIGZCommandParameterSet *pCmd1 = nullptr;
+        cIGZCommandParameterSet *pCmd2 = nullptr;
 
         if (!pCmdServer->CreateCommandParameterSet(&pCmd1) || !pCmd1 ||
             !pCmdServer->CreateCommandParameterSet(&pCmd2) || !pCmd2) {
             if (pCmd1) pCmd1->Release();
             if (pCmd2) pCmd2->Release();
             return;
-            }
+        }
 
         // Create a fake variant in pCmd1, this will get clobbered in AppendParameter anyway
         cRZBaseVariant dummyVariant;
@@ -917,12 +938,12 @@ private:
         pCmd1->AppendParameter(dummyVariant);
 
         // Get the game's internal variant and patch it directly
-        cIGZVariant* storedParam = pCmd1->GetParameter(0);
+        cIGZVariant *storedParam = pCmd1->GetParameter(0);
         if (storedParam) {
-            uint32_t* ptr = reinterpret_cast<uint32_t*>(storedParam);
-            uint16_t* shortPtr = reinterpret_cast<uint16_t*>(storedParam);
+            uint32_t *ptr = reinterpret_cast<uint32_t *>(storedParam);
+            uint16_t *shortPtr = reinterpret_cast<uint16_t *>(storedParam);
 
-            ptr[1] = lotID;       // Data at offset +0x04
+            ptr[1] = lotID; // Data at offset +0x04
             shortPtr[7] = 0x0006; // Type=6 (Uint32) at offset +0x0E
         }
 
@@ -1004,6 +1025,11 @@ private:
 
         auto pDirector = GetLotPlopDirector();
         if (pDirector) {
+            // Generate S3D thumbnail if not done yet
+            if (!pDirector->s3dThumbnailGenerated && pDirector->pCity) {
+                pDirector->GenerateS3DThumbnail(pDevice, pContext);
+            }
+
             pDirector->RenderUI();
         }
 
@@ -1098,4 +1124,153 @@ void AdvancedLotPlopDllDirector::SaveCacheToDisk(const std::string &path) {
 bool AdvancedLotPlopDllDirector::LoadCacheFromDisk(const std::string &path) {
     // Delegate to INI serializer util
     return CacheSerializer::LoadLotCacheINI(lotConfigCache, path, 1);
+}
+
+void AdvancedLotPlopDllDirector::GenerateS3DThumbnail(ID3D11Device *device, ID3D11DeviceContext *context) {
+    if (s3dThumbnailGenerated || !device || !context) {
+        return;
+    }
+
+    LOG_INFO("Generating S3D thumbnail proof-of-concept...");
+
+    // Test prop: T=0x6534284a, G=0xc977c536, I=0x1d830000
+    constexpr uint32_t S3D_TYPE = 0x6534284a;
+    constexpr uint32_t S3D_GROUP = 0xf38748f8;
+    constexpr uint32_t S3D_INSTANCE = 0x0445bb45;
+
+    try {
+        cIGZPersistResourceManagerPtr pRM;
+        if (!pRM) {
+            LOG_ERROR("Failed to get resource manager");
+            return;
+        }
+
+        // Get S3D resource from ResourceManager
+        cGZPersistResourceKey key(S3D_TYPE, S3D_GROUP, S3D_INSTANCE);
+
+        // First get the prop exemplar
+        cRZAutoRefCount<cISCPropertyHolder> propExemplar;
+        if (!pRM->GetResource(key, GZIID_cISCPropertyHolder, propExemplar.AsPPVoid(), 0, nullptr)) {
+            LOG_ERROR("Failed to get prop exemplar");
+            return;
+        }
+
+        // Extract S3D resource key from exemplar
+        constexpr uint32_t kResourceKeyType1 = 0x27812821;
+        cGZPersistResourceKey s3dKey;
+        // Helper function to extract resource key from RKT1 property (Uint32 array with 3 values: T, G, I)
+        auto GetPropertyResourceKey = [](cISCPropertyHolder *holder, uint32_t propID,
+                                         cGZPersistResourceKey &outKey) -> bool {
+            const cISCProperty *prop = holder->GetProperty(propID);
+            if (!prop) return false;
+
+            const cIGZVariant *val = prop->GetPropertyValue();
+            if (!val || val->GetType() != cIGZVariant::Type::Uint32Array) return false;
+
+            uint32_t count = val->GetCount();
+            if (count < 3) return false;
+
+            const uint32_t *vals = val->RefUint32();
+            if (!vals) return false;
+
+            outKey.type = vals[0];
+            outKey.group = vals[1];
+            outKey.instance = vals[2];
+            return true;
+        };
+
+        auto res = GetPropertyResourceKey(propExemplar, kResourceKeyType1, s3dKey);
+
+        if (!res) {
+            LOG_ERROR("Failed to get S3D resource key from prop exemplar");
+            return;
+        }
+
+        s3dKey.group = 0xd9b5e4a6; // This does nto align with RKT1 prop entry
+
+        cIGZPersistDBRecord* pRecord = nullptr;
+        if (!pRM->OpenDBRecord(s3dKey, &pRecord, false)) {
+            LOG_ERROR("Failed to open S3D record - TGI may not exist: {:08x}-{:08x}-{:08x}",
+                      s3dKey.type, s3dKey.group, s3dKey.instance);
+            return;
+        }
+
+        uint32_t dataSize = pRecord->GetSize();
+        if (dataSize == 0) {
+            LOG_ERROR("S3D record has zero size");
+            pRecord->Close();
+            return;
+        }
+
+        std::vector<uint8_t> s3dData(dataSize);
+        if (!pRecord->GetFieldVoid(s3dData.data(), dataSize)) {
+            LOG_ERROR("Failed to read S3D data");
+            pRecord->Close();
+            return;
+        }
+
+        // Parse S3D model
+        S3D::Model model;
+        if (!S3D::Reader::Parse(s3dData.data(), dataSize, model)) {
+            LOG_ERROR("Failed to parse S3D model");
+            return;
+        }
+
+        LOG_INFO("S3D model parsed successfully: {} meshes, {} frames",
+                 model.animation.animatedMeshes.size(), model.animation.frameCount);
+
+        // Create renderer
+        s3dRenderer = std::make_unique<S3D::Renderer>(device, context);
+
+        // Load model into renderer (using ResourceManager for texture loading)
+        if (!s3dRenderer->LoadModel(model, pRM, S3D_GROUP)) {
+            LOG_ERROR("Failed to load S3D model into renderer");
+            s3dRenderer.reset();
+            return;
+        }
+
+        // Generate thumbnail
+        s3dThumbnailSRV = s3dRenderer->GenerateThumbnail(256);
+        if (s3dThumbnailSRV) {
+            LOG_INFO("S3D thumbnail generated successfully!");
+            s3dThumbnailGenerated = true;
+        } else {
+            LOG_ERROR("Failed to generate S3D thumbnail");
+            s3dRenderer.reset();
+        }
+    } catch (const std::exception &e) {
+        LOG_ERROR("Exception while generating S3D thumbnail: {}", e.what());
+        s3dRenderer.reset();
+    }
+}
+
+void AdvancedLotPlopDllDirector::RenderS3DThumbnailWindow() {
+    LOG_INFO("Rendering thumbnail window...");
+    if (!showS3DThumbnail) {
+        return;
+    }
+
+    if (ImGui::Begin("S3D Thumbnail Proof-of-Concept", &showS3DThumbnail)) {
+        ImGui::Text("Testing S3D rendering with prop:");
+        ImGui::Text("Type:     0x6534284a");
+        ImGui::Text("Group:    0xc977c536");
+        ImGui::Text("Instance: 0x1d830000");
+        ImGui::Separator();
+
+        if (s3dThumbnailSRV) {
+            LOG_INFO("Adding thumbnail to Image inside gui");
+            ImGui::Text("Thumbnail generated:");
+            ImGui::Image((ImTextureID) s3dThumbnailSRV, ImVec2(256, 256));
+        } else if (s3dThumbnailGenerated) {
+            ImGui::Text("Failed to generate thumbnail");
+        } else {
+            ImGui::Text("Thumbnail not yet generated");
+            if (ImGui::Button("Generate Thumbnail")) {
+                // Trigger generation on next render (when we have device/context)
+                // This will be called from OnImGuiRender where we have access to device
+                s3dThumbnailGenerated = false; // Reset flag to trigger generation
+            }
+        }
+    }
+    ImGui::End();
 }

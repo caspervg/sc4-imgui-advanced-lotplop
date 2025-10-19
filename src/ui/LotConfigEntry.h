@@ -28,4 +28,5 @@ struct LotConfigEntry {
 
     // Lazy load state (set by director when a decode job is queued)
     bool iconRequested = false;
+    bool descriptionLoaded = false;
 };

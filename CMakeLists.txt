@@ -106,6 +106,7 @@ set(SOURCES
     src/exemplar/IconResourceUtil.cpp
     src/gfx/DX11ImageLoader.cpp
     src/utils/Config.cpp
+    src/utils/CacheSerializer.cpp
 )
 
 set(HEADERS

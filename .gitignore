@@ -367,4 +367,4 @@ vcpkg_installed/
 
 .idea/
 *.iml
-extra-info/
+extra-info/build/

@@ -97,6 +97,11 @@ include_directories(
 set(SOURCES
     src/AdvancedLotPlopDllDirector.cpp
     src/ui/AdvancedLotPlopUI.cpp
+    src/services/LotCacheManager.cpp
+    src/services/IconLoadingService.cpp
+    src/services/LotFilterService.cpp
+    src/services/WindowManager.cpp
+    src/services/LotPlopService.cpp
     ${GZCOM_SOURCES}
     ${SC4_DLL_BASICS_SOURCE_DIR}
     ${IMGUI_SOURCES}
@@ -104,6 +109,7 @@ set(SOURCES
     src/utils/D3D11Hook.cpp
     src/exemplar/ExemplarUtil.cpp
     src/exemplar/IconResourceUtil.cpp
+    src/exemplar/PropertyUtil.cpp
     src/gfx/DX11ImageLoader.cpp
     src/utils/Config.cpp
     src/utils/CacheSerializer.cpp
@@ -116,8 +122,12 @@ set(HEADERS
     ${CMAKE_SOURCE_DIR}/src/utils/Logger.h
     ${CMAKE_SOURCE_DIR}/src/utils/D3D11Hook.h
     ${CMAKE_SOURCE_DIR}/src/exemplar/ExemplarUtil.h
-        src/exemplar/PropertyUtil.cpp
-        src/exemplar/PropertyUtil.h
+    ${CMAKE_SOURCE_DIR}/src/exemplar/PropertyUtil.h
+    ${CMAKE_SOURCE_DIR}/src/services/LotCacheManager.h
+    ${CMAKE_SOURCE_DIR}/src/services/IconLoadingService.h
+    ${CMAKE_SOURCE_DIR}/src/services/LotFilterService.h
+    ${CMAKE_SOURCE_DIR}/src/services/WindowManager.h
+    ${CMAKE_SOURCE_DIR}/src/services/LotPlopService.h
 )
 
 # Create the main DLL with explicit exports

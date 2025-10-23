@@ -98,7 +98,6 @@ set(SOURCES
     src/AdvancedLotPlopDllDirector.cpp
     src/ui/AdvancedLotPlopUI.cpp
     src/services/LotCacheManager.cpp
-    src/services/IconLoadingService.cpp
     src/services/LotFilterService.cpp
     src/services/WindowManager.cpp
     src/services/LotPlopService.cpp
@@ -124,7 +123,6 @@ set(HEADERS
     ${CMAKE_SOURCE_DIR}/src/exemplar/ExemplarUtil.h
     ${CMAKE_SOURCE_DIR}/src/exemplar/PropertyUtil.h
     ${CMAKE_SOURCE_DIR}/src/services/LotCacheManager.h
-    ${CMAKE_SOURCE_DIR}/src/services/IconLoadingService.h
     ${CMAKE_SOURCE_DIR}/src/services/LotFilterService.h
     ${CMAKE_SOURCE_DIR}/src/services/WindowManager.h
     ${CMAKE_SOURCE_DIR}/src/services/LotPlopService.h

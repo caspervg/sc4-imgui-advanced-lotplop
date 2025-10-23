@@ -36,9 +36,8 @@ class cISC4City;
  *
  * Responsibilities:
  * - Building and storing exemplar cache
- * - Building and storing lot configuration cache
+ * - Building and storing lot configuration cache (with immediate icon loading)
  * - Async cache building operations
- * - Cache persistence (load/save to disk)
  */
 class LotCacheManager {
 public:
@@ -61,10 +60,6 @@ public:
 
     const std::unordered_map<uint32_t, LotConfigEntry>& GetLotConfigCache() const { return lotConfigCache; }
     std::unordered_map<uint32_t, LotConfigEntry>& GetLotConfigCache() { return lotConfigCache; }
-
-    // Cache persistence
-    bool LoadCacheFromDisk(const std::string& path);
-    void SaveCacheToDisk(const std::string& path, const std::string& version, int schemaVersion);
 
     // State management
     bool IsCacheInitialized() const { return cacheInitialized; }

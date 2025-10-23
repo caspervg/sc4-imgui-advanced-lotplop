@@ -42,7 +42,6 @@
 #include "ui/AdvancedLotPlopUI.h"
 #include "utils/Config.h"
 #include "services/LotCacheManager.h"
-#include "services/IconLoadingService.h"
 #include "services/LotFilterService.h"
 #include "services/WindowManager.h"
 #include "services/LotPlopService.h"
@@ -77,7 +76,6 @@ public:
           pView3D(nullptr),
           pCacheManager(nullptr),
           pFilterService(nullptr),
-          pIconService(nullptr),
           pWindowManager(nullptr),
           pPlopService(nullptr),
           isLoading(false),
@@ -93,9 +91,7 @@ public:
         cb.OnPlop = [](uint32_t lotID) { if (GetLotPlopDirector()) GetLotPlopDirector()->OnPlopRequested(lotID); };
         cb.OnBuildCache = []() { if (GetLotPlopDirector()) GetLotPlopDirector()->OnBuildCacheRequested(); };
         cb.OnRefreshList = []() { if (GetLotPlopDirector()) GetLotPlopDirector()->OnRefreshListRequested(); };
-        cb.OnRequestIcon = [](uint32_t iconInstanceID) {
-            if (GetLotPlopDirector()) GetLotPlopDirector()->OnIconRequested(iconInstanceID);
-        };
+        cb.OnRequestIcon = nullptr; // Icons loaded immediately during cache build
         mUI.SetCallbacks(cb);
         mUI.SetLotEntries(&lotEntries);
     }
@@ -118,7 +114,6 @@ public:
         // Cleanup services
         delete pCacheManager;
         delete pFilterService;
-        delete pIconService;
         delete pWindowManager;
         delete pPlopService;
 
@@ -147,9 +142,6 @@ public:
         }
         if (!pFilterService) {
             pFilterService = new LotFilterService(pCity, &mUI);
-        }
-        if (!pIconService) {
-            pIconService = new IconLoadingService();
         }
         if (!pWindowManager) {
             pWindowManager = new WindowManager();
@@ -237,9 +229,6 @@ public:
         if (pCacheManager) {
             pCacheManager->Clear();
         }
-        if (pIconService) {
-            pIconService->Clear();
-        }
 
         lotEntries.clear();
         lotEntryIndexByID.clear();
@@ -282,10 +271,6 @@ public:
                     ImGui::CloseCurrentPopup();
                 }
             } else {
-                // Run a small number of lazy icon decode jobs per frame
-                if (pIconService && pCacheManager) {
-                    pIconService->ProcessIconJobs(128, pCacheManager->GetLotConfigCache(), lotEntryIndexByID, lotEntries);
-                }
                 // Delegate to UI class
                 mUI.Render();
             }
@@ -304,7 +289,6 @@ private:
     // Services
     LotCacheManager* pCacheManager;
     LotFilterService* pFilterService;
-    IconLoadingService* pIconService;
     WindowManager* pWindowManager;
     LotPlopService* pPlopService;
 
@@ -320,7 +304,6 @@ private:
     void OnPlopRequested(uint32_t lotID);
     void OnBuildCacheRequested();
     void OnRefreshListRequested();
-    void OnIconRequested(uint32_t lotID);
 
     // Utility methods
     static std::string GetModuleDir() {
@@ -341,28 +324,17 @@ private:
     }
 
     void ToggleWindow() {
-        static const int kCacheSchemaVersion = 1;
-        const std::string cacheFile = GetModuleDir().append("\\AdvancedLotPlopCache.ini");
         bool *pShow = mUI.GetShowWindowPtr();
         *pShow = !*pShow;
         if (*pShow && pCacheManager) {
-            // On first open after city init, build cache lazily with loading screen
+            // On first open after city init, build cache with loading screen
             if (!pCacheManager->IsCacheInitialized()) {
-                // Try to load from on-disk cache first for instant startup
-                if (pCacheManager->LoadCacheFromDisk(cacheFile)) {
-                    pCacheManager->SetCacheInitialized(true);
-                    LOG_INFO("Loaded lot cache from disk: {} entries", pCacheManager->GetLotConfigCache().size());
-                    OnRefreshListRequested();
-                } else {
-                    // Fall back to building asynchronously with a loading popup
-                    isLoading = true;
-                    if (!buildStarted) {
-                        buildStarted = true;
-                        pCacheManager->BuildLotConfigCacheAsync([this, cacheFile]() {
-                            // Persist for next run
-                            pCacheManager->SaveCacheToDisk(cacheFile, PLUGIN_VERSION_STR, 1);
-                        });
-                    }
+                isLoading = true;
+                if (!buildStarted) {
+                    buildStarted = true;
+                    pCacheManager->BuildLotConfigCacheAsync([this]() {
+                        // Cache built with icons loaded
+                    });
                 }
             } else {
                 OnRefreshListRequested();
@@ -417,12 +389,6 @@ void AdvancedLotPlopDllDirector::OnBuildCacheRequested() {
 void AdvancedLotPlopDllDirector::OnRefreshListRequested() {
     if (pFilterService && pCacheManager) {
         pFilterService->RefreshLotList(pCacheManager->GetLotConfigCache(), lotEntries, lotEntryIndexByID);
-    }
-}
-
-void AdvancedLotPlopDllDirector::OnIconRequested(uint32_t lotID) {
-    if (pIconService && pCacheManager) {
-        pIconService->RequestIcon(lotID, pCacheManager->GetLotConfigCache());
     }
 }
 

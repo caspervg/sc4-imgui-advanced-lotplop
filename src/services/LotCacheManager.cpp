@@ -20,16 +20,18 @@
  */
 #include "LotCacheManager.h"
 #include "../utils/Logger.h"
-#include "../utils/CacheSerializer.h"
+#include "../utils/D3D11Hook.h"
 #include "../exemplar/ExemplarUtil.h"
 #include "../exemplar/PropertyUtil.h"
 #include "../exemplar/IconResourceUtil.h"
+#include "../gfx/DX11ImageLoader.h"
 #include "cISC4City.h"
 #include "cISC4LotConfiguration.h"
 #include "cISC4LotConfigurationManager.h"
 #include "cIGZPersistResourceManager.h"
 #include "cIGZPersistResourceKeyList.h"
 #include "GZServPtrs.h"
+#include <d3d11.h>
 
 LotCacheManager::LotCacheManager(cISC4City* city)
     : pCity(city), cacheInitialized(false) {
@@ -176,10 +178,26 @@ void LotCacheManager::BuildLotConfigCache() {
                                     entry.name += ")";
                                 }
 
-                                // Store Item Icon PNG instance ID for lazy loading later
+                                // Load icon immediately
                                 uint32_t iconInstance = 0;
                                 if (ExemplarUtil::GetItemIconInstance(pBuildingExemplar, iconInstance)) {
                                     entry.iconInstance = iconInstance;
+
+                                    // Load the icon PNG data
+                                    std::vector<uint8_t> pngBytes;
+                                    if (ExemplarUtil::LoadPNGByInstance(pRM, iconInstance, pngBytes) && !pngBytes.empty()) {
+                                        // Get D3D11 device and create texture
+                                        ID3D11Device* device = D3D11Hook::GetDevice();
+                                        if (device) {
+                                            ID3D11ShaderResourceView* srv = nullptr;
+                                            int w = 0, h = 0;
+                                            if (gfx::CreateSRVFromPNGMemory(pngBytes.data(), pngBytes.size(), device, &srv, &w, &h)) {
+                                                entry.iconSRV = srv;
+                                                entry.iconWidth = w;
+                                                entry.iconHeight = h;
+                                            }
+                                        }
+                                    }
                                 }
 
                                 // Occupant Groups
@@ -250,12 +268,4 @@ void LotCacheManager::CancelAsyncBuild() {
         static std::vector<std::future<void>> detachedFutures;
         detachedFutures.push_back(std::move(buildFuture));
     }
-}
-
-bool LotCacheManager::LoadCacheFromDisk(const std::string& path) {
-    return CacheSerializer::LoadLotCacheINI(lotConfigCache, path, 1);
-}
-
-void LotCacheManager::SaveCacheToDisk(const std::string& path, const std::string& version, int schemaVersion) {
-    CacheSerializer::SaveLotCacheINI(lotConfigCache, path, version, schemaVersion);
 }

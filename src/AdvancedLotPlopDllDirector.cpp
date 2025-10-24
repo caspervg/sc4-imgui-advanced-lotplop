@@ -25,6 +25,7 @@
 #include "cIGZCheatCodeManager.h"
 #include "cIGZCOM.h"
 #include "cIGZFrameWork.h"
+#include "cIGZFrameWorkW32.h"
 #include "cIGZMessage2Standard.h"
 #include "cIGZMessageServer2.h"
 #include "cISC4App.h"
@@ -194,18 +195,18 @@ public:
             }
         }
 
-        // Get the game window using Windows API - simpler and more reliable
+        // Get the game window from framework
         if (!imGuiInitialized) {
-            // Find the main SimCity 4 window
-            HWND hGameWindow = FindWindowA(nullptr, "SimCity 4");
+            HWND hGameWindow = nullptr;
 
-            if (!hGameWindow) {
-                // Try getting the active window as fallback
-                hGameWindow = GetActiveWindow();
+            // Query framework for Windows-specific interface
+            cRZAutoRefCount<cIGZFrameWorkW32> pFrameworkW32;
+            if (mpFrameWork->QueryInterface(GZIID_cIGZFrameWorkW32, pFrameworkW32.AsPPVoid())) {
+                hGameWindow = pFrameworkW32->GetMainHWND();
             }
 
             if (hGameWindow && IsWindow(hGameWindow)) {
-                LOG_INFO("Got game window: 0x{:X}", reinterpret_cast<uintptr_t>(hGameWindow));
+                LOG_INFO("Got game window from framework: 0x{:X}", reinterpret_cast<uintptr_t>(hGameWindow));
 
                 ImGui::CreateContext();
                 if (D3D11Hook::Initialize(hGameWindow)) {
@@ -218,7 +219,7 @@ public:
                     ImGui::DestroyContext();
                 }
             } else {
-                LOG_ERROR("Failed to find SimCity 4 window");
+                LOG_ERROR("Failed to get game window from framework");
             }
         }
 

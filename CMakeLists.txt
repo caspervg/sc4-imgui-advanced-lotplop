@@ -97,6 +97,7 @@ include_directories(
 set(SOURCES
     src/AdvancedLotPlopDllDirector.cpp
     src/ui/AdvancedLotPlopUI.cpp
+    src/ui/LotConfigTableEntry.cpp
     ${GZCOM_SOURCES}
     ${SC4_DLL_BASICS_SOURCE_DIR}
     ${IMGUI_SOURCES}
@@ -105,8 +106,10 @@ set(SOURCES
     src/exemplar/ExemplarUtil.cpp
     src/exemplar/IconResourceUtil.cpp
     src/gfx/DX11ImageLoader.cpp
+    src/gfx/IconLoader.cpp
     src/utils/Config.cpp
-    src/utils/CacheSerializer.cpp
+    src/cache/LotCacheManager.cpp
+    src/filter/LotFilterer.cpp
 )
 
 set(HEADERS

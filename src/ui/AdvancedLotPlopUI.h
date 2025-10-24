@@ -15,8 +15,6 @@ struct AdvancedLotPlopUICallbacks {
     void (*OnBuildCache)() = nullptr;
     // Rebuild filtered list
     void (*OnRefreshList)() = nullptr;
-    // Lazy icon request when a row becomes visible
-    void (*OnRequestIcon)(uint32_t lotID) = nullptr;
 };
 
 class AdvancedLotPlopUI {
@@ -49,6 +47,11 @@ public:
     // Render entrypoint (assumes ImGui context is active)
     void Render();
 
+    // Loading window control
+    void ShowLoadingWindow(bool show);
+    void SetLoadingProgress(const char* stage, int current, int total);
+    void RenderLoadingWindow();
+
     // Mutators used by director to sync from saved state if needed
     void SetFilters(uint8_t zone, uint8_t wealth, uint32_t minX, uint32_t maxX, uint32_t minZ, uint32_t maxZ, const char* search);
 
@@ -79,4 +82,10 @@ private:
 
     // Advanced filters
     std::vector<uint32_t> selectedOccupantGroups; // chosen in UI
+
+    // Loading window state
+    bool showLoadingWindow = false;
+    char loadingStage[256]{};
+    int loadingCurrent = 0;
+    int loadingTotal = 0;
 };

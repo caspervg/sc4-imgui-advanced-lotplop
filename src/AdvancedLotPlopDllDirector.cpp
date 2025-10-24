@@ -32,6 +32,7 @@
 #include "cISC4City.h"
 #include "cISC4View3DWin.h"
 #include "cRZAutoRefCount.h"
+#include "cRZBaseString.h"
 #include "cRZMessage2COMDirector.h"
 #include "GZServPtrs.h"
 #include "args.hxx"
@@ -53,21 +54,12 @@
 #include "cIGZCommandParameterSet.h"
 #include "cIGZWin.h"
 #include "cRZBaseVariant.h"
-#include "exemplar/ExemplarUtil.h"
-#include "exemplar/PropertyUtil.h"
-#include "exemplar/IconResourceUtil.h"
-#include "gfx/DX11ImageLoader.h"
 #include "ui/LotConfigEntry.h"
 #include "ui/AdvancedLotPlopUI.h"
 #include "utils/Config.h"
-#include "utils/CacheSerializer.h"
-#include <future>
-#include <deque>
-#include <fstream>
-#include <sstream>
+#include "cache/LotCacheManager.h"
+#include "filter/LotFilterer.h"
 #include <string>
-
-#include "cIGZPersistResourceKeyList.h"
 
 class AdvancedLotPlopDllDirector;
 static constexpr uint32_t kMessageCheatIssued = 0x230E27AC;
@@ -94,29 +86,27 @@ public:
     AdvancedLotPlopDllDirector()
         : pCheatCodeManager(nullptr),
           pCity(nullptr),
-          pView3D(nullptr),
-          showWindow(true),
-          filterZoneType(0xFF),
-          filterWealthType(0xFF),
-          minSizeX(1), maxSizeX(16),
-          minSizeZ(1), maxSizeZ(16),
-          selectedLotIID(0) {
-        Logger::Initialize("SC4AdvancedLotPlop");
+          pView3D(nullptr) {
+        std::string userDir;
+        cISC4AppPtr pSC4App;
+        if (pSC4App) {
+            cRZBaseString userDirStr;
+            if (pSC4App->GetUserDataDirectory(userDirStr)) {
+                userDir = userDirStr.Data();
+            }
+        }
+
+        Logger::Initialize("SC4AdvancedLotPlop", userDir);
         LOG_INFO("SC4AdvancedLotPlop v{}", PLUGIN_VERSION_STR);
 
         // Load config (occupant group mapping)
         Config::LoadOnce();
 
-        searchBuffer[0] = '\0';
-
-        // Wire UI callbacks and data pointers
+        // Wire UI callbacks
         AdvancedLotPlopUICallbacks cb{};
         cb.OnPlop = [](uint32_t lotID) { if (GetLotPlopDirector()) GetLotPlopDirector()->TriggerLotPlop(lotID); };
-        cb.OnBuildCache = []() { if (GetLotPlopDirector()) GetLotPlopDirector()->BuildLotConfigCache(); };
+        cb.OnBuildCache = []() { if (GetLotPlopDirector()) GetLotPlopDirector()->BuildCache(); };
         cb.OnRefreshList = []() { if (GetLotPlopDirector()) GetLotPlopDirector()->RefreshLotList(); };
-        cb.OnRequestIcon = [](uint32_t iconInstanceID) {
-            if (GetLotPlopDirector()) GetLotPlopDirector()->RequestIcon(iconInstanceID);
-        };
         mUI.SetCallbacks(cb);
         mUI.SetLotEntries(&lotEntries);
     }
@@ -124,25 +114,7 @@ public:
     ~AdvancedLotPlopDllDirector() override {
         LOG_INFO("~AdvancedLotPlopDllDirector()");
 
-        // Detach async cache build future to avoid blocking during shutdown
-        if (buildFuture.valid()) {
-            LOG_INFO("Detaching cache build future during shutdown");
-            // Move to static container so future doesn't block destruction
-            static std::vector<std::future<void> > detachedFutures;
-            detachedFutures.push_back(std::move(buildFuture));
-        }
-
-        // Release cached icon SRVs
-        for (auto &kv: lotConfigCache) {
-            auto &e = kv.second;
-            if (e.iconSRV) {
-                e.iconSRV->Release();
-                e.iconSRV = nullptr;
-            }
-        }
-
-        lotConfigCache.clear();
-        exemplarCache.clear();
+        lotCacheManager.Clear();
 
         if (imGuiInitialized) {
             ImGui_ImplDX11_Shutdown();
@@ -171,8 +143,6 @@ public:
 
         pCity = static_cast<cISC4City *>(pStandardMsg->GetVoid1());
         mUI.SetCity(pCity);
-        lotConfigCache.clear();
-        cacheInitialized = false;
 
         if (pSC4App && pMS2) {
             constexpr uint32_t kGZWin_WinSC4App = 0x6104489A;
@@ -202,6 +172,11 @@ public:
             // Query framework for Windows-specific interface
             cRZAutoRefCount<cIGZFrameWorkW32> pFrameworkW32;
             if (mpFrameWork->QueryInterface(GZIID_cIGZFrameWorkW32, pFrameworkW32.AsPPVoid())) {
+            	if (!pFrameworkW32)
+            	{
+            		LOG_ERROR("Failed to get framework W32 interface");
+            		return;
+            	}
                 hGameWindow = pFrameworkW32->GetMainHWND();
             }
 
@@ -211,7 +186,7 @@ public:
                 ImGui::CreateContext();
                 if (D3D11Hook::Initialize(hGameWindow)) {
                     LOG_INFO("D3D11Hook initialized successfully");
-                    D3D11Hook::SetPresentCallback(OnImGuiRender); // new signature
+                    D3D11Hook::SetPresentCallback(OnImGuiRender);
                     ImGui_ImplWin32_Init(hGameWindow); // Win32 backend now; DX11 renderer later
                     imGuiInitialized = true;
                 } else {
@@ -222,9 +197,6 @@ public:
                 LOG_ERROR("Failed to get game window from framework");
             }
         }
-
-        // Perform initial lot list population
-        // RefreshLotList();
     }
 
     bool PreAppInit() override {
@@ -259,18 +231,7 @@ public:
         // Unregister our shortcut notifications
         UnregisterToggleShortcut();
 
-        // Detach any running cache build future
-        if (buildFuture.valid()) {
-            LOG_INFO("Detaching cache build future during city shutdown");
-            static std::vector<std::future<void> > detachedFutures;
-            detachedFutures.push_back(std::move(buildFuture));
-        }
-        buildStarted = false;
-        isLoading = false;
-
-        lotConfigCache.clear();
-        exemplarCache.clear();
-        cacheInitialized = false;
+        lotCacheManager.Clear();
 
         // Ensure UI no longer references city resources during shutdown
         mUI.SetCity(nullptr);
@@ -283,40 +244,32 @@ public:
         }
     }
 
+    void Update() {
+        // Handle pending cache build (deferred to allow loading window to render first)
+        if (pendingCacheBuild) {
+            pendingCacheBuild = false;
+
+            cIGZPersistResourceManagerPtr pRM;
+            ID3D11Device* pDevice = D3D11Hook::GetDevice();
+
+            auto progressCallback = [](const char* stage, int current, int total) {
+                if (GetLotPlopDirector()) {
+                    GetLotPlopDirector()->UpdateLoadingProgress(stage, current, total);
+                }
+            };
+
+            lotCacheManager.BuildCache(pCity, pRM, pDevice, progressCallback);
+            mUI.ShowLoadingWindow(false);
+            // Now that the cache is ready, immediately refresh the filtered list
+            RefreshLotList();
+        }
+    }
+
     void RenderUI() {
         bool *pShow = mUI.GetShowWindowPtr();
         if (pShow && *pShow) {
-            if (isLoading) {
-                ImGui::OpenPopup("Loading lots...");
-                bool open = true;
-                if (ImGui::BeginPopupModal("Loading lots...", &open, ImGuiWindowFlags_AlwaysAutoResize)) {
-                    ImGui::Text("Building lot cache, please wait...");
-                    ImGui::Separator();
-                    ImGui::TextDisabled("This may take some time, but is only required the first time.");
-                    ImGui::TextDisabled("Current cache size: %d", lotConfigCache.size());
-                    ImGui::EndPopup();
-                }
-
-                // Poll async build completion without blocking the render thread
-                if (buildStarted && buildFuture.valid()) {
-                    auto status = buildFuture.wait_for(std::chrono::milliseconds(0));
-                    if (status == std::future_status::ready) {
-                        // Ensure completion and then refresh UI list once
-                        try { buildFuture.get(); } catch (...) {
-                            /* swallow to avoid crashing UI */
-                        }
-                        RefreshLotList();
-                        isLoading = false;
-                        buildStarted = false;
-                        ImGui::CloseCurrentPopup();
-                    }
-                }
-            } else {
-                // Run a small number of lazy icon decode jobs per frame
-                ProcessIconJobs(128);
-                // Delegate to UI class
-                mUI.Render();
-            }
+            // Delegate to UI class
+            mUI.Render();
         }
     }
 
@@ -326,44 +279,17 @@ private:
     cISC4View3DWin *pView3D;
     cIGZMessageServer2 *pMS2;
 
+    // Services
+    LotCacheManager lotCacheManager;
+
     // UI facade
     AdvancedLotPlopUI mUI;
 
-    // Legacy state retained for data and integration
-    bool showWindow;
-    uint8_t filterZoneType;
-    uint8_t filterWealthType;
-    uint32_t minSizeX, maxSizeX;
-    uint32_t minSizeZ, maxSizeZ;
-    char searchBuffer[256];
+    // Filtered lot list (populated by RefreshLotList)
     std::vector<LotConfigEntry> lotEntries;
-    uint32_t selectedLotIID;
-    std::unordered_map<uint32_t, LotConfigEntry> lotConfigCache;
-    // Map visible list row by lot id for quick updates when icons load
-    std::unordered_map<uint32_t, size_t> lotEntryIndexByID;
-
-    // Exemplar cache: instance ID -> vector of (group, exemplar) pairs
-    // Pre-loaded at city init to avoid thousands of DAT file searches
-    std::unordered_map<uint32_t, std::vector<std::pair<uint32_t, cRZAutoRefCount<cISCPropertyHolder> > > >
-    exemplarCache;
-
-    // Lazy icon decode queue
-    std::deque<uint32_t> iconJobQueue;
 
     bool imGuiInitialized = false;
-    bool cacheInitialized = false;
-    bool isLoading = false;
-    bool buildStarted = false;
-    std::future<void> buildFuture;
-
-    void RequestIcon(uint32_t lotID);
-
-    void ProcessIconJobs(uint32_t maxJobsPerFrame = 1);
-
-    // Cache persistence
-    bool LoadCacheFromDisk(const std::string &path);
-
-    void SaveCacheToDisk(const std::string &path);
+    bool pendingCacheBuild = false;
 
     void RegisterToggleShortcut() {
         if (!pView3D) return;
@@ -390,510 +316,46 @@ private:
         }
     }
 
-    // Render logic has been moved to src/ui/AdvancedLotPlopUI
-    void RenderFilters() {
-        // Zone Type
-        const char *zoneTypes[] = {"Any", "Residential", "Commercial", "Industrial"};
-        int currentZone = (filterZoneType == 0xFF) ? 0 : (filterZoneType + 1);
-        if (ImGui::Combo("Zone Type", &currentZone, zoneTypes, IM_ARRAYSIZE(zoneTypes))) {
-            filterZoneType = (currentZone == 0) ? 0xFF : (currentZone - 1);
-            RefreshLotList();
-        }
-
-        // Wealth Type
-        const char *wealthTypes[] = {"Any", "Low ($)", "Medium ($$)", "High ($$$)"};
-        int currentWealth = (filterWealthType == 0xFF) ? 0 : (filterWealthType + 1);
-        if (ImGui::Combo("Wealth", &currentWealth, wealthTypes, IM_ARRAYSIZE(wealthTypes))) {
-            filterWealthType = (currentWealth == 0) ? 0xFF : (currentWealth - 1);
-            RefreshLotList();
-        }
-
-        // Size sliders
-        ImGui::Text("Size Range:");
-        if (ImGui::SliderInt("Min Width", (int *) &minSizeX, 1, 16) |
-            ImGui::SliderInt("Max Width", (int *) &maxSizeX, 1, 16) |
-            ImGui::SliderInt("Min Depth", (int *) &minSizeZ, 1, 16) |
-            ImGui::SliderInt("Max Depth", (int *) &maxSizeZ, 1, 16)) {
-            RefreshLotList();
-        }
-
-        // Search
-        if (ImGui::InputText("Search", searchBuffer, sizeof(searchBuffer))) {
-            RefreshLotList();
-        }
-
-        if (ImGui::Button("Clear Filters")) {
-            ClearFilters();
-            RefreshLotList();
-        }
+    void BuildCache() {
+        mUI.ShowLoadingWindow(true);
+        mUI.SetLoadingProgress("Initializing...", 0, 0);
+        pendingCacheBuild = true;
     }
 
-    void RenderLotList() {
-        ImGui::Text("Lot Configurations (%zu found)", lotEntries.size());
-
-        if (ImGui::BeginTable("LotTable", 3,
-                              ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY)) {
-            ImGui::TableSetupColumn("ID", ImGuiTableColumnFlags_WidthFixed, 80);
-            ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch);
-            ImGui::TableSetupColumn("Size", ImGuiTableColumnFlags_WidthFixed, 60);
-            ImGui::TableHeadersRow();
-
-            for (const auto &entry: lotEntries) {
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0);
-
-                bool isSelected = (entry.id == selectedLotIID);
-                char label[32];
-                snprintf(label, sizeof(label), "0x%08X", entry.id);
-
-                if (ImGui::Selectable(label, isSelected, ImGuiSelectableFlags_SpanAllColumns)) {
-                    selectedLotIID = entry.id;
-                }
-
-                ImGui::TableSetColumnIndex(1);
-                ImGui::Text("%s", entry.name.c_str());
-
-                ImGui::TableSetColumnIndex(2);
-                ImGui::Text("%ux%u", entry.sizeX, entry.sizeZ);
-            }
-
-            ImGui::EndTable();
-        }
+    void UpdateLoadingProgress(const char* stage, int current, int total) {
+        mUI.SetLoadingProgress(stage, current, total);
     }
 
-    void RenderDetails() {
-        if (selectedLotIID == 0) {
-            ImGui::Text("No lot selected");
-            return;
-        }
-
-        auto it = std::find_if(lotEntries.begin(), lotEntries.end(),
-                               [this](const LotConfigEntry &e) { return e.id == selectedLotIID; });
-
-        if (it != lotEntries.end()) {
-            ImGui::Text("Selected Lot: %s", it->name.c_str());
-            ImGui::Text("ID: 0x%08X", it->id);
-            ImGui::Text("Size: %ux%u", it->sizeX, it->sizeZ);
-
-            ImGui::Spacing();
-            if (ImGui::Button("Plop")) {
-                TriggerLotPlop(selectedLotIID);
-            }
-            ImGui::SameLine();
-            ImGui::TextDisabled("(?)");
-            if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("Activates the game's built-in plop tool.\nClick in the city to place the building.");
-            }
-        }
-    }
-
-    // Build exemplar cache: loads all exemplars once to avoid repeated DAT file searches
-    void BuildExemplarCache() {
-        if (!exemplarCache.empty()) return;
-
-        LOG_INFO("Building exemplar cache...");
-
-        cIGZPersistResourceManagerPtr pRM;
-        if (!pRM) return;
-
-        constexpr uint32_t kExemplarType = 0x6534284A;
-
-        cRZAutoRefCount<cIGZPersistResourceKeyList> pKeyList;
-        uint32_t totalCount = pRM->GetAvailableResourceList(pKeyList.AsPPObj(), nullptr);
-
-        if (totalCount == 0 || !pKeyList) {
-            LOG_WARN("Failed to enumerate resources for exemplar cache");
-            return;
-        }
-
-        LOG_INFO("Filtering {} resources for exemplars...", totalCount);
-
-        uint32_t exemplarCount = 0;
-        for (int i = 0; i < pKeyList->Size(); i++) {
-            auto key = pKeyList->GetKey(i);
-
-            // Only cache exemplars (0x6534284A), skip PNGs, LTEXTs, etc.
-            if (key.type != kExemplarType) continue;
-            LOG_INFO("Found: {}/{} - Examplar - 0x{:08X} - {}", i + 1, totalCount, key.instance, key.group);
-
-            cRZAutoRefCount<cISCPropertyHolder> exemplar;
-            if (pRM->GetResource(key, GZIID_cISCPropertyHolder, exemplar.AsPPVoid(), 0, nullptr)) {
-                // Store by instance ID -> vector of (group, exemplar) pairs
-                exemplarCache[key.instance].emplace_back(key.group, exemplar);
-                LOG_INFO("Added to exemplar cache: {}/{} - Examplar - 0x{:08X} - {}", i + 1, totalCount, key.instance,
-                         key.group);
-                exemplarCount++;
-            }
-        }
-
-        LOG_INFO("Exemplar cache built: {} exemplars across {} unique instance IDs", exemplarCount,
-                 exemplarCache.size());
-    }
-
-    // Cached version of GetExemplarByInstance - returns first match for given instance ID
-    bool GetCachedExemplar(uint32_t instanceID, cRZAutoRefCount<cISCPropertyHolder> &outExemplar) {
-        auto it = exemplarCache.find(instanceID);
-        if (it != exemplarCache.end() && !it->second.empty()) {
-            outExemplar = it->second[0].second;
-            return true;
-        }
-        return false;
-    }
-
-    // Cached version of GetExemplarByInstanceAndType - finds matching exemplar with specific type
-    bool GetCachedExemplarByType(
-        uint32_t instanceID,
-        uint32_t exemplarTypePropertyID,
-        uint32_t expectedTypeValue,
-        cRZAutoRefCount<cISCPropertyHolder> &outExemplar
-    ) {
-        auto it = exemplarCache.find(instanceID);
-        if (it != exemplarCache.end()) {
-            for (auto &[group, exemplar]: it->second) {
-                uint32_t actualType;
-                if (GetPropertyUint32(exemplar, exemplarTypePropertyID, actualType) && actualType ==
-                    expectedTypeValue) {
-                    outExemplar = exemplar;
-                    return true;
-                }
-            }
-        }
-        return false;
-    }
-
-    void BuildLotConfigCache() {
-        if (cacheInitialized) return;
-
-        LOG_INFO("Building lot configuration cache...");
-
-        cISC4LotConfigurationManager *pLotConfigMgr = pCity->GetLotConfigurationManager();
-        if (!pLotConfigMgr) return;
-
-        cIGZPersistResourceManagerPtr pRM;
-        if (!pRM) return;
-
-        // Pre-allocate capacity to avoid rehashing during population
-        lotConfigCache.reserve(2048);
-
-        constexpr uint32_t kExemplarType = 0x6534284A;
-        constexpr uint32_t kPropertyLotObjectsBase = 0x88EDC900;
-        constexpr uint32_t kPropertyLotObjectsRange = 256;
-        constexpr uint32_t kPropertyUserVisibleNameKey = 0x8A416A99;
-        constexpr uint32_t kPropertyExemplarType = 0x00000010;
-        constexpr uint32_t kPropertyExemplarTypeBuilding = 0x00000002;
-
-        // Reuse hash set across iterations to avoid repeated allocations
-        SC4HashSet<uint32_t> configIdTable{};
-        configIdTable.Init(256);
-
-        for (uint32_t x = 1; x <= 16; x++) {
-            for (uint32_t z = 1; z <= 16; z++) {
-                if (pLotConfigMgr->GetLotConfigurationIDsBySize(configIdTable, x, z)) {
-                    for (const auto it: configIdTable) {
-                        uint32_t lotConfigID = it->key;
-
-                        if (lotConfigCache.count(lotConfigID)) continue;
-
-                        cISC4LotConfiguration *pConfig = pLotConfigMgr->GetLotConfiguration(lotConfigID);
-                        if (!pConfig) continue;
-
-                        LotConfigEntry entry;
-                        entry.id = lotConfigID;
-
-                        cRZAutoRefCount<cISCPropertyHolder> pLotExemplar;
-                        if (GetCachedExemplar(lotConfigID, pLotExemplar)) {
-                            uint32_t buildingExemplarID = 0;
-                            if (GetLotBuildingExemplarID(pLotExemplar, buildingExemplarID)) {
-                                cRZAutoRefCount<cISCPropertyHolder> pBuildingExemplar;
-                                if (GetCachedExemplarByType(
-                                    buildingExemplarID,
-                                    kPropertyExemplarType,
-                                    kPropertyExemplarTypeBuilding,
-                                    pBuildingExemplar
-                                )) {
-                                    cRZBaseString displayName;
-                                    if (PropertyUtil::GetDisplayName(pBuildingExemplar, displayName)) {
-                                        cRZBaseString techName;
-                                        pConfig->GetName(techName);
-                                        // Optimize string concatenation with reserve
-                                        entry.name.reserve(displayName.Strlen() + techName.Strlen() + 3);
-                                        entry.name = displayName.Data();
-                                        entry.name += " (";
-                                        entry.name += techName.Data();
-                                        entry.name += ")";
-                                    }
-
-                                    // Description: Skip during initial cache build for performance
-                                    // Only loaded lazily if/when user performs a search
-                                    // {
-                                    //     cRZBaseString desc;
-                                    //     if (PropertyUtil::GetItemDescription(pBuildingExemplar, desc)) {
-                                    //         entry.description = desc.Data();
-                                    //     }
-                                    // }
-
-                                    // Store Item Icon PNG instance ID for lazy loading later
-                                    uint32_t iconInstance = 0;
-                                    if (ExemplarUtil::GetItemIconInstance(pBuildingExemplar, iconInstance)) {
-                                        entry.iconInstance = iconInstance;
-                                    }
-
-                                    // Occupant Groups
-                                    {
-                                        constexpr uint32_t kOccupantGroupProperty = 0xAA1DD396;
-                                        const cISCProperty *prop = pBuildingExemplar->GetProperty(
-                                            kOccupantGroupProperty);
-                                        if (prop) {
-                                            const cIGZVariant *val = prop->GetPropertyValue();
-                                            if (val && val->GetType() == cIGZVariant::Type::Uint32Array) {
-                                                uint32_t count = val->GetCount();
-                                                const uint32_t *pVals = val->RefUint32();
-                                                if (pVals && count > 0) {
-                                                    for (uint32_t i = 0; i < count; ++i) {
-                                                        entry.occupantGroups.insert(pVals[i]);
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        if (entry.name.empty()) {
-                            cRZBaseString techName;
-                            if (pConfig->GetName(techName)) {
-                                entry.name = techName.Data();
-                            }
-                        }
-
-                        pConfig->GetSize(entry.sizeX, entry.sizeZ);
-                        entry.minCapacity = pConfig->GetMinBuildingCapacity();
-                        entry.maxCapacity = pConfig->GetMaxBuildingCapacity();
-                        entry.growthStage = pConfig->GetGrowthStage();
-
-                        lotConfigCache[lotConfigID] = entry;
-                    }
-                }
-            }
-        }
-
-        cacheInitialized = true;
-        LOG_INFO("Lot configuration cache built: {} entries", lotConfigCache.size());
-    }
-
+    // Delegate to filterer
     void RefreshLotList() {
-        // Build cache if needed
-        if (!cacheInitialized) {
-            BuildLotConfigCache();
+        if (!lotCacheManager.IsInitialized()) {
+            BuildCache();
+            return; // Defer filtering until cache is ready
         }
 
-        lotEntries.clear();
-        lotEntryIndexByID.clear();
-
-        cISC4LotConfigurationManager *pLotConfigMgr = pCity->GetLotConfigurationManager();
-        if (!pLotConfigMgr) return;
-
-        // Now just filter from cache - much faster!
-        for (uint32_t x = mUI.GetMinSizeX(); x <= mUI.GetMaxSizeX(); x++) {
-            for (uint32_t z = mUI.GetMinSizeZ(); z <= mUI.GetMaxSizeZ(); z++) {
-                SC4HashSet<uint32_t> configIdTable{};
-                configIdTable.Init(8);
-
-                if (pLotConfigMgr->GetLotConfigurationIDsBySize(configIdTable, x, z)) {
-                    for (const auto it: configIdTable) {
-                        auto cacheIt = lotConfigCache.find(it->key);
-                        if (cacheIt == lotConfigCache.end()) continue;
-
-                        const LotConfigEntry &cachedEntry = cacheIt->second;
-
-                        // Apply filters
-                        cISC4LotConfiguration *pConfig = pLotConfigMgr->GetLotConfiguration(it->key);
-                        if (!pConfig || !MatchesFilters(pConfig)) continue;
-
-                        // Search filter
-                        if (mUI.GetSearchBuffer()[0] != '\0') {
-                            std::string searchLower = mUI.GetSearchBuffer();
-                            std::transform(searchLower.begin(), searchLower.end(),
-                                           searchLower.begin(),
-                                           [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-                            std::string nameLower = cachedEntry.name;
-                            std::transform(nameLower.begin(), nameLower.end(),
-                                           nameLower.begin(),
-                                           [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-                            // Match against name OR description
-                            if (nameLower.find(searchLower) == std::string::npos) {
-                                std::string descLower = cachedEntry.description;
-                                std::transform(descLower.begin(), descLower.end(),
-                                               descLower.begin(),
-                                               [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-                                if (descLower.find(searchLower) == std::string::npos) continue;
-                            }
-                        }
-
-                        // Occupant group filter (Any-match)
-                        const auto &selGroups = mUI.GetSelectedOccupantGroups();
-                        if (!selGroups.empty()) {
-                            bool any = false;
-                            for (uint32_t g: selGroups) {
-                                if (cachedEntry.occupantGroups.count(g) != 0) {
-                                    any = true;
-                                    break;
-                                }
-                            }
-                            if (!any) continue;
-                        }
-
-                        lotEntries.push_back(cachedEntry);
-                        lotEntryIndexByID[cachedEntry.id] = lotEntries.size() - 1;
-                    }
-                }
-            }
-        }
-    }
-
-    static std::string GetModuleDir() {
-        char path[MAX_PATH] = {0};
-        HMODULE hMod = nullptr;
-        if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                               (LPCSTR) &GetModuleDir,
-                               &hMod)) {
-            GetModuleFileNameA(hMod, path, MAX_PATH);
-            std::string p = path;
-            size_t pos = p.find_last_of("/\\");
-            if (pos != std::string::npos) {
-                p.resize(pos);
-                return p;
-            }
-        }
-        return std::string(".");
+        LotFilterer::FilterLots(
+            pCity,
+            lotCacheManager.GetLotConfigCache(),
+            lotEntries,
+            mUI.GetFilterZoneType(),
+            mUI.GetFilterWealthType(),
+            mUI.GetMinSizeX(), mUI.GetMaxSizeX(),
+            mUI.GetMinSizeZ(), mUI.GetMaxSizeZ(),
+            mUI.GetSearchBuffer(),
+            mUI.GetSelectedOccupantGroups()
+        );
     }
 
     void ToggleWindow() {
-        static const int kCacheSchemaVersion = 1;
-        const std::string cacheFile = GetModuleDir().append("\\AdvancedLotPlopCache.ini");
+    	pView3D->RemoveAllViewInputControls(false);
         bool *pShow = mUI.GetShowWindowPtr();
         *pShow = !*pShow;
         if (*pShow) {
-            // On first open after city init, build cache lazily with loading screen
-            if (!cacheInitialized) {
-                // Try to load from on-disk cache first for instant startup
-                if (LoadCacheFromDisk(cacheFile)) {
-                    cacheInitialized = true;
-                    LOG_INFO("Loaded lot cache from disk: {} entries", lotConfigCache.size());
-                    RefreshLotList();
-                } else {
-                    // Fall back to building asynchronously with a loading popup
-                    isLoading = true;
-                    if (!buildStarted) {
-                        buildStarted = true;
-                        buildFuture = std::async(std::launch::async, [this, cacheFile]() {
-                            // Build exemplar cache first - required for fast lot cache building
-                            BuildExemplarCache();
-                            // Now build lot cache using cached exemplars
-                            BuildLotConfigCache();
-                            // Persist for next run
-                            SaveCacheToDisk(cacheFile);
-                        });
-                    }
-                }
-            } else {
-                RefreshLotList();
+            if (!lotCacheManager.IsInitialized()) {
+                BuildCache();
             }
+            RefreshLotList();
         }
-    }
-
-    bool MatchesFilters(cISC4LotConfiguration *pConfig) {
-        // Zone filter: UI exposes R/C/I categories, not exact zone densities.
-        // Map UI value (0=R,1=C,2=I) to the set of densities and check compatibility with any of them.
-        if (mUI.GetFilterZoneType() != 0xFF) {
-            const uint8_t zoneCategory = mUI.GetFilterZoneType();
-            bool zoneOk = false;
-            if (zoneCategory == 0) {
-                // Residential: low, medium, high
-                cISC4ZoneManager::ZoneType resZones[] = {
-                    cISC4ZoneManager::ZoneType::ResidentialLowDensity,
-                    cISC4ZoneManager::ZoneType::ResidentialMediumDensity,
-                    cISC4ZoneManager::ZoneType::ResidentialHighDensity,
-                };
-                for (auto z: resZones) {
-                    if (pConfig->IsCompatibleWithZoneType(z)) {
-                        zoneOk = true;
-                        break;
-                    }
-                }
-            } else if (zoneCategory == 1) {
-                // Commercial: low, medium, high
-                cISC4ZoneManager::ZoneType comZones[] = {
-                    cISC4ZoneManager::ZoneType::CommercialLowDensity,
-                    cISC4ZoneManager::ZoneType::CommercialMediumDensity,
-                    cISC4ZoneManager::ZoneType::CommercialHighDensity,
-                };
-                for (auto z: comZones) {
-                    if (pConfig->IsCompatibleWithZoneType(z)) {
-                        zoneOk = true;
-                        break;
-                    }
-                }
-            } else if (zoneCategory == 2) {
-                // Industrial: medium, high (Agriculture is separate and not included in generic I)
-                cISC4ZoneManager::ZoneType indZones[] = {
-                    cISC4ZoneManager::ZoneType::IndustrialMediumDensity,
-                    cISC4ZoneManager::ZoneType::IndustrialHighDensity,
-                };
-                for (auto z: indZones) {
-                    if (pConfig->IsCompatibleWithZoneType(z)) {
-                        zoneOk = true;
-                        break;
-                    }
-                }
-            } else if (zoneCategory == 3) {
-                // Agriculture
-                if (pConfig->IsCompatibleWithZoneType(cISC4ZoneManager::ZoneType::Agriculture)) zoneOk = true;
-            } else if (zoneCategory == 4) {
-                // Plopped
-                if (pConfig->IsCompatibleWithZoneType(cISC4ZoneManager::ZoneType::Plopped)) zoneOk = true;
-            } else if (zoneCategory == 5) {
-                // None
-                if (pConfig->IsCompatibleWithZoneType(cISC4ZoneManager::ZoneType::None)) zoneOk = true;
-            } else if (zoneCategory == 6) {
-                // Other: Military, Airport, Seaport, Spaceport, Landfill
-                cISC4ZoneManager::ZoneType otherZones[] = {
-                    cISC4ZoneManager::ZoneType::Military,
-                    cISC4ZoneManager::ZoneType::Airport,
-                    cISC4ZoneManager::ZoneType::Seaport,
-                    cISC4ZoneManager::ZoneType::Spaceport,
-                    cISC4ZoneManager::ZoneType::Landfill,
-                };
-                for (auto z: otherZones) {
-                    if (pConfig->IsCompatibleWithZoneType(z)) {
-                        zoneOk = true;
-                        break;
-                    }
-                }
-            }
-            if (!zoneOk) return false;
-        }
-
-        // Wealth filter: UI stores 0=Low,1=Medium,2=High; enum is 1..3
-        if (mUI.GetFilterWealthType() != 0xFF) {
-            const uint8_t wealthIdx = mUI.GetFilterWealthType();
-            cISC4BuildingOccupant::WealthType wealthType =
-                    static_cast<cISC4BuildingOccupant::WealthType>(wealthIdx + 1);
-            if (!pConfig->IsCompatibleWithWealthType(wealthType)) return false;
-        }
-
-        return true;
-    }
-
-    void ClearFilters() {
-        filterZoneType = 0xFF;
-        filterWealthType = 0xFF;
-        minSizeX = 1;
-        maxSizeX = 16;
-        minSizeZ = 1;
-        maxSizeZ = 16;
-        searchBuffer[0] = '\0';
     }
 
     void TriggerLotPlop(uint32_t lotID) {
@@ -920,11 +382,13 @@ private:
         // Get the game's internal variant and patch it directly
         cIGZVariant* storedParam = pCmd1->GetParameter(0);
         if (storedParam) {
-            uint32_t* ptr = reinterpret_cast<uint32_t*>(storedParam);
-            uint16_t* shortPtr = reinterpret_cast<uint16_t*>(storedParam);
+            // uint32_t* ptr = reinterpret_cast<uint32_t*>(storedParam);
+            // uint16_t* shortPtr = reinterpret_cast<uint16_t*>(storedParam);
+            //
+            // ptr[1] = lotID;       // Data at offset +0x04
+            // shortPtr[7] = 0x0006; // Type=6 (Uint32) at offset +0x0E
 
-            ptr[1] = lotID;       // Data at offset +0x04
-            shortPtr[7] = 0x0006; // Type=6 (Uint32) at offset +0x0E
+        	storedParam->SetValUint32(lotID);
         }
 
         pView3D->ProcessCommand(0xec3e82f8, *pCmd1, *pCmd2);
@@ -1005,7 +469,8 @@ private:
 
         auto pDirector = GetLotPlopDirector();
         if (pDirector) {
-            pDirector->RenderUI();
+            pDirector->Update();   // Business logic update
+            pDirector->RenderUI(); // Pure rendering
         }
 
         // Render
@@ -1013,73 +478,6 @@ private:
         ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
     }
 };
-
-// Lazy icon: enqueue request if not yet queued/loaded
-void AdvancedLotPlopDllDirector::RequestIcon(uint32_t lotID) {
-    auto it = lotConfigCache.find(lotID);
-    if (it == lotConfigCache.end()) return;
-    LotConfigEntry &entry = it->second;
-    if (entry.iconSRV || entry.iconRequested) return;
-    if (entry.iconInstance == 0) {
-        // no icon to load
-        entry.iconRequested = true; // prevent repeated requests
-        return;
-    }
-    entry.iconRequested = true;
-    iconJobQueue.push_back(lotID);
-}
-
-void AdvancedLotPlopDllDirector::ProcessIconJobs(uint32_t maxJobsPerFrame) {
-    if (!cacheInitialized || iconJobQueue.empty() || maxJobsPerFrame == 0) return;
-
-    uint32_t processed = 0;
-    while (processed < maxJobsPerFrame && !iconJobQueue.empty()) {
-        uint32_t lotID = iconJobQueue.front();
-        iconJobQueue.pop_front();
-
-        auto it = lotConfigCache.find(lotID);
-        if (it == lotConfigCache.end()) { continue; }
-        LotConfigEntry &entry = it->second;
-        if (entry.iconSRV) { continue; }
-
-        // Resource manager
-        cIGZPersistResourceManagerPtr pRM;
-        if (!pRM) { continue; }
-
-        // Use stored icon instance to avoid walking exemplar chain
-        if (entry.iconInstance == 0) {
-            continue; // no icon for this entry
-        }
-        std::vector<uint8_t> pngBytes;
-        if (!ExemplarUtil::LoadPNGByInstance(pRM, entry.iconInstance, pngBytes) || pngBytes.empty()) {
-            continue;
-        }
-
-        ID3D11Device *device = D3D11Hook::GetDevice();
-        if (!device) { continue; }
-
-        ID3D11ShaderResourceView *srv = nullptr;
-        int w = 0, h = 0;
-        if (gfx::CreateSRVFromPNGMemory(pngBytes.data(), pngBytes.size(), device, &srv, &w, &h)) {
-            // Update cache entry
-            entry.iconSRV = srv;
-            entry.iconWidth = w;
-            entry.iconHeight = h;
-            // Propagate to visible list if present
-            auto mit = lotEntryIndexByID.find(lotID);
-            if (mit != lotEntryIndexByID.end()) {
-                size_t idx = mit->second;
-                if (idx < lotEntries.size()) {
-                    lotEntries[idx].iconSRV = srv;
-                    lotEntries[idx].iconWidth = w;
-                    lotEntries[idx].iconHeight = h;
-                }
-            }
-        }
-
-        processed++;
-    }
-}
 
 static AdvancedLotPlopDllDirector sDirector;
 
@@ -1089,14 +487,4 @@ cRZCOMDllDirector *RZGetCOMDllDirector() {
 
 AdvancedLotPlopDllDirector *GetLotPlopDirector() {
     return &sDirector;
-}
-
-void AdvancedLotPlopDllDirector::SaveCacheToDisk(const std::string &path) {
-    // Delegate to INI serializer util
-    CacheSerializer::SaveLotCacheINI(lotConfigCache, path, PLUGIN_VERSION_STR, 1);
-}
-
-bool AdvancedLotPlopDllDirector::LoadCacheFromDisk(const std::string &path) {
-    // Delegate to INI serializer util
-    return CacheSerializer::LoadLotCacheINI(lotConfigCache, path, 1);
 }

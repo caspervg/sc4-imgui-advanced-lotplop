@@ -1,6 +1,7 @@
 #include "AdvancedLotPlopUI.h"
 #include "../vendor/imgui/imgui.h"
 #include "LotConfigEntry.h"
+#include "LotConfigTableEntry.h"
 #include "../utils/Config.h"
 
 #include <algorithm>
@@ -46,7 +47,46 @@ void AdvancedLotPlopUI::SetFilters(uint8_t zone, uint8_t wealth, uint32_t minX, 
     }
 }
 
+void AdvancedLotPlopUI::ShowLoadingWindow(bool show) {
+    showLoadingWindow = show;
+}
+
+void AdvancedLotPlopUI::SetLoadingProgress(const char* stage, int current, int total) {
+    if (stage) {
+        strncpy_s(loadingStage, stage, sizeof(loadingStage) - 1);
+        loadingStage[sizeof(loadingStage) - 1] = '\0';
+    }
+    loadingCurrent = current;
+    loadingTotal = total;
+}
+
+void AdvancedLotPlopUI::RenderLoadingWindow() {
+    if (!showLoadingWindow) return;
+
+    ImGui::SetNextWindowSize(ImVec2(400, 150), ImGuiCond_Always);
+    ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+
+    ImGuiWindowFlags flags = ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove;
+    if (ImGui::Begin("Building lot cache", nullptr, flags)) {
+        ImGui::TextWrapped("Building lot cache, please wait...");
+        ImGui::Spacing();
+
+        if (loadingTotal > 0) {
+            float progress = (float)loadingCurrent / (float)loadingTotal;
+            ImGui::ProgressBar(progress, ImVec2(-1.0f, 0.0f));
+            ImGui::Text("%s (%d / %d)", loadingStage, loadingCurrent, loadingTotal);
+        } else {
+            ImGui::TextWrapped("%s", loadingStage);
+        }
+    }
+    ImGui::End();
+}
+
 void AdvancedLotPlopUI::Render() {
+    // Always render loading window if needed
+    RenderLoadingWindow();
+
     if (!showWindow) return;
 
     ImGui::SetNextWindowSize(ImVec2(700, 600), ImGuiCond_FirstUseEver);
@@ -212,21 +252,34 @@ void AdvancedLotPlopUI::RenderLotList() {
     ImGui::Text("Lot Configurations (%zu found)", count);
 
     if (ImGui::BeginTable("LotTable", 4,
-                          ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY, ImVec2(0.0f, 48.0f * 8))) {
+                          ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_Sortable,
+                          ImVec2(0.0f, 48.0f * 8))) {
         ImGui::TableSetupScrollFreeze(0, 1);
-        ImGui::TableSetupColumn("Icon", ImGuiTableColumnFlags_WidthFixed, 56.0f);
+        ImGui::TableSetupColumn("Icon", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoSort, 56.0f);
         ImGui::TableSetupColumn("ID", ImGuiTableColumnFlags_WidthFixed, 80);
-        ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_DefaultSort | ImGuiTableColumnFlags_PreferSortAscending);
         ImGui::TableSetupColumn("Size", ImGuiTableColumnFlags_WidthFixed, 60);
         ImGui::TableHeadersRow();
 
+        // Determine sort order
+        static std::vector<int> indices; // indices into lotEntries
+        indices.clear();
         if (lotEntries) {
+            indices = LotConfigTable::BuildSortedIndex(*lotEntries, ImGui::TableGetSortSpecs());
+            if (ImGuiTableSortSpecs* sort_specs = ImGui::TableGetSortSpecs()) {
+                sort_specs->SpecsDirty = false;
+            }
+
             ImGuiListClipper clipper;
-            clipper.Begin(lotEntries->size());
+            clipper.Begin(static_cast<int>(lotEntries->size()));
             while (clipper.Step()) {
                 for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; ++row) {
-                    const auto &entry = (*lotEntries)[row];
+                    int idx = indices.empty() ? row : indices[static_cast<size_t>(row)];
+                    const auto &entry = (*lotEntries)[static_cast<size_t>(idx)];
                     ImGui::TableNextRow();
+
+                    // Ensure unique ImGui ID scope per row to avoid ID collisions when labels repeat
+                    ImGui::PushID(idx);
 
                     // Icon column
                     ImGui::TableSetColumnIndex(0);
@@ -249,6 +302,8 @@ void AdvancedLotPlopUI::RenderLotList() {
 
                     ImGui::TableSetColumnIndex(3);
                     ImGui::Text("%ux%u", entry.sizeX, entry.sizeZ);
+
+                    ImGui::PopID();
                 }
             }
         }
@@ -266,11 +321,7 @@ void AdvancedLotPlopUI::RenderIconForEntry(const LotConfigEntry& entry) {
         float v2 = (entry.iconHeight > 0) ? (44.0f / (float)entry.iconHeight) : 0.0f;
         ImGui::Image((ImTextureID)entry.iconSRV, ImVec2(44, 44), ImVec2(u1, v1), ImVec2(u2, v2));
     } else {
-        // Request icon decode lazily when row is visible
-        if (callbacks.OnRequestIcon) {
-            callbacks.OnRequestIcon(entry.id);
-        }
-        // Placeholder to keep row height stable
+        // No icon available - show placeholder
         ImGui::Dummy(ImVec2(44, 44));
     }
 }

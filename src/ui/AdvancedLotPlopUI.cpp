@@ -270,10 +270,11 @@ void AdvancedLotPlopUI::RenderLotList() {
     size_t count = lotEntries ? lotEntries->size() : 0;
     ImGui::Text("Lot Configurations (%zu found)", count);
 
-    if (ImGui::BeginTable("LotTable", 4,
+    if (ImGui::BeginTable("LotTable", 5,
                           ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_Sortable,
                           ImVec2(0.0f, 48.0f * 8))) {
         ImGui::TableSetupScrollFreeze(0, 1);
+        ImGui::TableSetupColumn("Fav", ImGuiTableColumnFlags_WidthFixed, 30);
         ImGui::TableSetupColumn("Icon", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoSort, 56.0f);
         ImGui::TableSetupColumn("ID", ImGuiTableColumnFlags_WidthFixed, 80);
         ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_DefaultSort | ImGuiTableColumnFlags_PreferSortAscending);
@@ -300,12 +301,17 @@ void AdvancedLotPlopUI::RenderLotList() {
                     // Ensure unique ImGui ID scope per row to avoid ID collisions when labels repeat
                     ImGui::PushID(idx);
 
-                    // Icon column
+                    // Fav column
                     ImGui::TableSetColumnIndex(0);
+                    bool fav = IsFavorite(entry.id);
+                    if (ImGui::SmallButton(fav ? "Y" : "N")) { ToggleFavorite(entry.id); }
+
+                    // Icon column
+                    ImGui::TableSetColumnIndex(1);
                     RenderIconForEntry(entry);
 
                     // ID column + selection behavior spanning the row
-                    ImGui::TableSetColumnIndex(1);
+                    ImGui::TableSetColumnIndex(2);
                     bool isSelected = (entry.id == selectedLotIID);
                     char label[32];
                     snprintf(label, sizeof(label), "0x%08X", entry.id);
@@ -314,13 +320,13 @@ void AdvancedLotPlopUI::RenderLotList() {
                         SavePersistedState();
                     }
 
-                    ImGui::TableSetColumnIndex(2);
+                    ImGui::TableSetColumnIndex(3);
                     ImGui::Text("%s", entry.name.c_str());
                     if (!entry.description.empty() && ImGui::IsItemHovered()) {
                         ImGui::SetTooltip("%s", entry.description.c_str());
                     }
 
-                    ImGui::TableSetColumnIndex(3);
+                    ImGui::TableSetColumnIndex(4);
                     ImGui::Text("%ux%u", entry.sizeX, entry.sizeZ);
 
                     ImGui::PopID();
@@ -389,6 +395,10 @@ void AdvancedLotPlopUI::LoadPersistedState() {
     searchBuffer[sizeof(searchBuffer) - 1] = '\0';
     selectedOccupantGroups = st.selectedGroups;
     selectedLotIID = st.selectedLotID;
+
+    favoritesSet.clear(); favoritesOrdered.clear();
+    for (auto id : st.favorites) { favoritesSet.insert(id); favoritesOrdered.push_back(id); }
+
     MarkListDirty();
 }
 
@@ -401,7 +411,20 @@ void AdvancedLotPlopUI::SavePersistedState() {
     st.search = searchBuffer;
     st.selectedGroups = selectedOccupantGroups;
     st.selectedLotID = selectedLotIID;
+    st.favorites.assign(favoritesOrdered.begin(), favoritesOrdered.end());
     Config::SaveUIState(st);
 }
 
 void AdvancedLotPlopUI::MarkListDirty() { listDirty = true; }
+
+void AdvancedLotPlopUI::ToggleFavorite(uint32_t lotID) {
+    if (favoritesSet.count(lotID)) {
+        favoritesSet.erase(lotID);
+        favoritesOrdered.erase(std::remove(favoritesOrdered.begin(), favoritesOrdered.end(), lotID), favoritesOrdered.end());
+    } else {
+        favoritesSet.insert(lotID);
+        favoritesOrdered.push_back(lotID);
+    }
+	LOG_DEBUG("Toggle favorite 0x%08X", lotID);
+    SavePersistedState();
+}

@@ -23,6 +23,7 @@ namespace Config {
         std::string search; // raw search buffer
         std::vector<uint32_t> selectedGroups; // occupant groups selected in filter
         uint32_t selectedLotID = 0; // last selected lot
+        std::vector<uint32_t> favorites; // persisted favorite lot IDs
     };
 
     // Returns reference to loaded UI state (LoadOnce ensures initialization)

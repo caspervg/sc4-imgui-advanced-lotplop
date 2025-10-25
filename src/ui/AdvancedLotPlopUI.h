@@ -32,7 +32,11 @@ public:
     void SetFilters(uint8_t zone, uint8_t wealth, uint32_t minX, uint32_t maxX, uint32_t minZ, uint32_t maxZ, const char* search);
     // Persistence
     void LoadPersistedState(); void SavePersistedState();
+    bool IsFavorite(uint32_t lotID) const { return favoritesSet.count(lotID)!=0; }
+    void ToggleFavorite(uint32_t lotID);
 private:
     void RenderFilters(); void RenderLotList(); void RenderIconForEntry(const LotConfigEntry& entry); void RenderDetails(); void RenderOccupantGroupFilter(); void MarkListDirty();
     AdvancedLotPlopUICallbacks callbacks{}; cISC4City* pCity = nullptr;
-    bool showWindow = false; uint8_t filterZoneType = 0xFF; uint8_t filterWealthType = 0xFF; uint32_t minSizeX = 1, maxSizeX = 16; uint32_t minSizeZ = 1, maxSizeZ = 16; char searchBuffer[256]{}; const std::vector<LotConfigEntry>* lotEntries = nullptr; uint32_t selectedLotIID = 0; std::vector<uint32_t> selectedOccupantGroups; bool showLoadingWindow = false; char loadingStage[256]{}; int loadingCurrent = 0; int loadingTotal = 0; bool listDirty = true; };
+    bool showWindow = false; uint8_t filterZoneType = 0xFF; uint8_t filterWealthType = 0xFF; uint32_t minSizeX = 1, maxSizeX = 16; uint32_t minSizeZ = 1, maxSizeZ = 16; char searchBuffer[256]{}; const std::vector<LotConfigEntry>* lotEntries = nullptr; uint32_t selectedLotIID = 0; std::vector<uint32_t> selectedOccupantGroups; bool showLoadingWindow = false; char loadingStage[256]{}; int loadingCurrent = 0; int loadingTotal = 0; bool listDirty = true;
+    std::unordered_set<uint32_t> favoritesSet; std::vector<uint32_t> favoritesOrdered;
+};

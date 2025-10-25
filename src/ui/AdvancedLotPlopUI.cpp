@@ -7,9 +7,11 @@
 #include "LotConfigTableEntry.h"
 #include "../utils/Config.h"
 #include "../vendor/imgui/imgui.h"
+#include "utils/Logger.h"
 
 AdvancedLotPlopUI::AdvancedLotPlopUI() {
     searchBuffer[0] = '\0';
+    LoadPersistedState();
 }
 
 void AdvancedLotPlopUI::SetCallbacks(const AdvancedLotPlopUICallbacks &cb) {
@@ -29,7 +31,7 @@ bool *AdvancedLotPlopUI::GetShowWindowPtr() {
 }
 
 uint32_t AdvancedLotPlopUI::GetSelectedLotIID() const { return selectedLotIID; }
-void AdvancedLotPlopUI::SetSelectedLotIID(uint32_t iid) { selectedLotIID = iid; }
+void AdvancedLotPlopUI::SetSelectedLotIID(uint32_t iid) { selectedLotIID = iid; SavePersistedState(); }
 
 uint8_t AdvancedLotPlopUI::GetFilterZoneType() const { return filterZoneType; }
 uint8_t AdvancedLotPlopUI::GetFilterWealthType() const { return filterWealthType; }
@@ -46,6 +48,8 @@ void AdvancedLotPlopUI::SetFilters(uint8_t zone, uint8_t wealth, uint32_t minX, 
         strncpy_s(searchBuffer, search, sizeof(searchBuffer) - 1);
         searchBuffer[sizeof(searchBuffer) - 1] = '\0';
     }
+    MarkListDirty();
+    SavePersistedState();
 }
 
 void AdvancedLotPlopUI::ShowLoadingWindow(bool show) {
@@ -114,6 +118,8 @@ void AdvancedLotPlopUI::RenderFilters() {
         ImGui::SetNextItemWidth(-FLT_MIN);
         if (ImGui::Combo("Zone", &currentZone, zoneTypes, IM_ARRAYSIZE(zoneTypes))) {
             filterZoneType = (currentZone == 0) ? 0xFF : static_cast<uint8_t>(currentZone - 1);
+            MarkListDirty();
+            SavePersistedState();
             if (callbacks.OnRefreshList) callbacks.OnRefreshList();
         }
 
@@ -123,27 +129,31 @@ void AdvancedLotPlopUI::RenderFilters() {
         ImGui::SetNextItemWidth(-FLT_MIN);
         if (ImGui::Combo("Wealth", &currentWealth, wealthTypes, IM_ARRAYSIZE(wealthTypes))) {
             filterWealthType = (currentWealth == 0) ? 0xFF : (currentWealth - 1);
+            MarkListDirty();
+            SavePersistedState();
             if (callbacks.OnRefreshList) callbacks.OnRefreshList();
         }
 
         ImGui::TableNextRow();
         ImGui::TableSetColumnIndex(0);
         ImGui::SetNextItemWidth(-FLT_MIN);
-        bool widthChanged = ImGui::SliderInt("Width", (int *) &minSizeX, 1, 16, "Width: %d", ImGuiSliderFlags_AlwaysClamp);
+        bool widthChanged = ImGui::SliderInt("Width", (int*)&minSizeX, 1, 16, "Width: %d", ImGuiSliderFlags_AlwaysClamp);
 
         ImGui::TableSetColumnIndex(1);
         ImGui::SetNextItemWidth(-FLT_MIN);
-        widthChanged |= ImGui::SliderInt("##MaxWidth", (int *) &maxSizeX, 1, 16, "to %d", ImGuiSliderFlags_AlwaysClamp);
+        widthChanged |= ImGui::SliderInt("##MaxWidth", (int*)&maxSizeX, 1, 16, "to %d", ImGuiSliderFlags_AlwaysClamp);
 
         ImGui::TableSetColumnIndex(2);
         ImGui::SetNextItemWidth(-FLT_MIN);
-        bool depthChanged = ImGui::SliderInt("Depth", (int *) &minSizeZ, 1, 16, "Depth: %d", ImGuiSliderFlags_AlwaysClamp);
+        bool depthChanged = ImGui::SliderInt("Depth", (int*)&minSizeZ, 1, 16, "Depth: %d", ImGuiSliderFlags_AlwaysClamp);
 
         ImGui::TableSetColumnIndex(3);
         ImGui::SetNextItemWidth(-FLT_MIN);
-        depthChanged |= ImGui::SliderInt("##MaxDepth", (int *) &maxSizeZ, 1, 16, "to %d", ImGuiSliderFlags_AlwaysClamp);
+        depthChanged |= ImGui::SliderInt("##MaxDepth", (int*)&maxSizeZ, 1, 16, "to %d", ImGuiSliderFlags_AlwaysClamp);
 
         if (widthChanged || depthChanged) {
+            MarkListDirty();
+            SavePersistedState();
             if (callbacks.OnRefreshList) callbacks.OnRefreshList();
         }
 
@@ -157,6 +167,8 @@ void AdvancedLotPlopUI::RenderFilters() {
     }
 
     if (ImGui::InputText("Search", searchBuffer, sizeof(searchBuffer))) {
+        MarkListDirty();
+        SavePersistedState();
         if (callbacks.OnRefreshList) callbacks.OnRefreshList();
     }
 
@@ -167,6 +179,8 @@ void AdvancedLotPlopUI::RenderFilters() {
         minSizeZ = 1; maxSizeZ = 16;
         searchBuffer[0] = '\0';
         selectedOccupantGroups.clear();
+        MarkListDirty();
+        SavePersistedState();
         if (callbacks.OnRefreshList) callbacks.OnRefreshList();
     }
 }
@@ -240,10 +254,14 @@ void AdvancedLotPlopUI::RenderOccupantGroupFilter() {
 
     if (anyChanged) {
         selectedOccupantGroups.assign(selectedSet.begin(), selectedSet.end());
+        MarkListDirty();
+        SavePersistedState();
         if (callbacks.OnRefreshList) callbacks.OnRefreshList();
     }
     if (ImGui::Button("Clear Group Selection")) {
         selectedOccupantGroups.clear();
+        MarkListDirty();
+        SavePersistedState();
         if (callbacks.OnRefreshList) callbacks.OnRefreshList();
     }
 }
@@ -293,6 +311,7 @@ void AdvancedLotPlopUI::RenderLotList() {
                     snprintf(label, sizeof(label), "0x%08X", entry.id);
                     if (ImGui::Selectable(label, isSelected, ImGuiSelectableFlags_SpanAllColumns)) {
                         selectedLotIID = entry.id;
+                        SavePersistedState();
                     }
 
                     ImGui::TableSetColumnIndex(2);
@@ -359,3 +378,30 @@ void AdvancedLotPlopUI::RenderDetails() {
         }
     }
 }
+
+void AdvancedLotPlopUI::LoadPersistedState() {
+    const auto& st = Config::GetUIState();
+    filterZoneType = st.zoneFilter;
+    filterWealthType = st.wealthFilter;
+    minSizeX = st.minSizeX; maxSizeX = st.maxSizeX;
+    minSizeZ = st.minSizeZ; maxSizeZ = st.maxSizeZ;
+    strncpy_s(searchBuffer, st.search.c_str(), sizeof(searchBuffer) - 1);
+    searchBuffer[sizeof(searchBuffer) - 1] = '\0';
+    selectedOccupantGroups = st.selectedGroups;
+    selectedLotIID = st.selectedLotID;
+    MarkListDirty();
+}
+
+void AdvancedLotPlopUI::SavePersistedState() {
+    Config::UIState st;
+    st.zoneFilter = filterZoneType;
+    st.wealthFilter = filterWealthType;
+    st.minSizeX = minSizeX; st.maxSizeX = maxSizeX;
+    st.minSizeZ = minSizeZ; st.maxSizeZ = maxSizeZ;
+    st.search = searchBuffer;
+    st.selectedGroups = selectedOccupantGroups;
+    st.selectedLotID = selectedLotIID;
+    Config::SaveUIState(st);
+}
+
+void AdvancedLotPlopUI::MarkListDirty() { listDirty = true; }

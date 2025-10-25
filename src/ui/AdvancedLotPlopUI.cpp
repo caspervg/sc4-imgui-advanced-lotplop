@@ -390,7 +390,7 @@ void AdvancedLotPlopUI::RenderLotList()
 		indices.clear();
 		if (lotEntries)
 		{
-			indices = LotConfigTable::BuildSortedIndex(*lotEntries, ImGui::TableGetSortSpecs());
+			indices = LotConfigTable::BuildSortedIndex(*lotEntries, favoritesSet, ImGui::TableGetSortSpecs());
 			if (ImGuiTableSortSpecs* sort_specs = ImGui::TableGetSortSpecs())
 			{
 				sort_specs->SpecsDirty = false;

@@ -1,8 +1,5 @@
 /*
- * DX11 Present hook for sc4-imgui-advanced-lotplop.
- * Creates a temporary DX11 device + swap chain to locate the IDXGISwapChain::Present
- * vtable entry and overwrites it to intercept the game's Present calls when running
- * through dgVoodoo (which exposes DX11).
+ * Deprecated DX11Hook: replaced by D3D7Hook for SimCity 4 native DirectX7 rendering.
  */
 #pragma once
 #include <d3d11.h>
@@ -43,4 +40,3 @@ private:
     static HRESULT (STDMETHODCALLTYPE* s_OriginalPresent)(IDXGISwapChain*, UINT, UINT);
     static WNDPROC s_OriginalWndProc;
 };
-

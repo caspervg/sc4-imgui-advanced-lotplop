@@ -1,3 +1,4 @@
+// Deprecated: DX11 hook retained for reference; not compiled in DX7 configuration.
 // ...new file...
 #include "D3D11Hook.h"
 #include "Logger.h"
@@ -30,7 +31,7 @@ bool D3D11Hook::Initialize(HWND hGameWindow) {
 
     s_hWnd = hGameWindow;
     LOG_INFO("D3D11Hook: Initializing with game window: 0x{:X}", reinterpret_cast<uintptr_t>(s_hWnd));
-    
+
     if (InstallPresentHook(hGameWindow)) {
         return InstallWndProcHook();
     }
@@ -255,4 +256,3 @@ void D3D11Hook::Shutdown() {
     s_FrameCount = 0;
     LOG_INFO("D3D11Hook: Shutdown complete");
 }
-

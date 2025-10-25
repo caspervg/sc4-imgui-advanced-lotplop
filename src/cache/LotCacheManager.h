@@ -24,10 +24,10 @@
 #include "cRZAutoRefCount.h"
 #include "cISCPropertyHolder.h"
 #include "../ui/LotConfigEntry.h"
+#include <ddraw.h>
 
 class cISC4City;
 class cIGZPersistResourceManager;
-struct ID3D11Device;
 
 // Progress callback: stage description, current progress, total steps
 typedef void (*LotCacheProgressCallback)(const char* stage, int current, int total);
@@ -41,7 +41,7 @@ public:
     ~LotCacheManager();
 
     // Build the complete cache
-    void BuildCache(cISC4City* pCity, cIGZPersistResourceManager* pRM, ID3D11Device* pDevice, LotCacheProgressCallback progressCallback = nullptr);
+    void BuildCache(cISC4City* pCity, cIGZPersistResourceManager* pRM, IDirectDraw7* pDDraw, LotCacheProgressCallback progressCallback = nullptr);
 
     // Clear all cached data
     void Clear();
@@ -57,7 +57,7 @@ private:
     void BuildExemplarCache(cIGZPersistResourceManager* pRM, LotCacheProgressCallback progressCallback);
 
     // Build lot configuration cache
-    void BuildLotConfigCache(cISC4City* pCity, cIGZPersistResourceManager* pRM, ID3D11Device* pDevice, LotCacheProgressCallback progressCallback);
+    void BuildLotConfigCache(cISC4City* pCity, cIGZPersistResourceManager* pRM, IDirectDraw7* pDDraw, LotCacheProgressCallback progressCallback);
 
     // Helper to get cached exemplar by instance ID
     bool GetCachedExemplar(uint32_t instanceID, cRZAutoRefCount<cISCPropertyHolder>& outExemplar);

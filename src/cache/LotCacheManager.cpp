@@ -35,7 +35,7 @@
 #include "../exemplar/IconResourceUtil.h"
 #include "../exemplar/PropertyUtil.h"
 #include "../gfx/IconLoader.h"
-#include <d3d11.h>
+#include <ddraw.h>
 
 LotCacheManager::LotCacheManager()
     : cacheInitialized(false) {
@@ -60,12 +60,12 @@ void LotCacheManager::Clear() {
     cacheInitialized = false;
 }
 
-void LotCacheManager::BuildCache(cISC4City* pCity, cIGZPersistResourceManager* pRM, ID3D11Device* pDevice, LotCacheProgressCallback progressCallback) {
+void LotCacheManager::BuildCache(cISC4City* pCity, cIGZPersistResourceManager* pRM, IDirectDraw7* pDDraw, LotCacheProgressCallback progressCallback) {
     if (cacheInitialized) return;
 
     LOG_INFO("Building lot cache...");
     BuildExemplarCache(pRM, progressCallback);
-    BuildLotConfigCache(pCity, pRM, pDevice, progressCallback);
+    BuildLotConfigCache(pCity, pRM, pDDraw, progressCallback);
     cacheInitialized = true;
     LOG_INFO("Lot cache built: {} entries", lotConfigCache.size());
 }
@@ -116,7 +116,7 @@ void LotCacheManager::BuildExemplarCache(cIGZPersistResourceManager* pRM, LotCac
     LOG_INFO("Exemplar cache built: {} exemplars across {} unique instance IDs", exemplarCount, exemplarCache.size());
 }
 
-void LotCacheManager::BuildLotConfigCache(cISC4City* pCity, cIGZPersistResourceManager* pRM, ID3D11Device* pDevice, LotCacheProgressCallback progressCallback) {
+void LotCacheManager::BuildLotConfigCache(cISC4City* pCity, cIGZPersistResourceManager* pRM, IDirectDraw7* pDDraw, LotCacheProgressCallback progressCallback) {
     LOG_INFO("Building lot configuration cache...");
 
     if (progressCallback) {
@@ -185,11 +185,11 @@ void LotCacheManager::BuildLotConfigCache(cISC4City* pCity, cIGZPersistResourceM
                                 if (ExemplarUtil::GetItemIconInstance(pBuildingExemplar, iconInstance)) {
                                     entry.iconInstance = iconInstance;
 
-                                    if (pDevice) {
-                                        ID3D11ShaderResourceView* srv = nullptr;
+                                    if (pDDraw) {
+                                        IDirectDrawSurface7* surface = nullptr;
                                         int w = 0, h = 0;
-                                        if (IconLoader::LoadIconFromPNG(pRM, iconInstance, pDevice, &srv, &w, &h)) {
-                                            entry.iconSRV = srv;
+                                        if (IconLoader::LoadIconFromPNG(pRM, iconInstance, pDDraw, &surface, &w, &h)) {
+                                            entry.iconSRV = surface;
                                             entry.iconWidth = w;
                                             entry.iconHeight = h;
                                         }

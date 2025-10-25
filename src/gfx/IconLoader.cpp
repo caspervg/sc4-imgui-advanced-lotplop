@@ -19,19 +19,19 @@
  * If not, see <http://www.gnu.org/licenses/>.
  */
 #include "IconLoader.h"
-#include "DX11ImageLoader.h"
+#include "DX7ImageLoader.h"
 #include "../exemplar/IconResourceUtil.h"
 #include <vector>
 
 bool IconLoader::LoadIconFromPNG(
     cIGZPersistResourceManager* pRM,
     uint32_t iconInstance,
-    ID3D11Device* pDevice,
-    ID3D11ShaderResourceView** outSRV,
+    IDirectDraw7* pDDraw,
+    IDirectDrawSurface7** outSurface,
     int* outWidth,
     int* outHeight
 ) {
-    if (!pRM || !pDevice || !outSRV || iconInstance == 0) {
+    if (!pRM || !pDDraw || !outSurface || iconInstance == 0) {
         return false;
     }
 
@@ -41,14 +41,14 @@ bool IconLoader::LoadIconFromPNG(
         return false;
     }
 
-    // Convert to D3D11 texture
-    ID3D11ShaderResourceView* srv = nullptr;
+    // Convert to DX7 surface
+    IDirectDrawSurface7* surface = nullptr;
     int w = 0, h = 0;
-    if (!gfx::CreateSRVFromPNGMemory(pngBytes.data(), pngBytes.size(), pDevice, &srv, &w, &h)) {
+    if (!gfx::CreateSurfaceFromPNGMemory(pngBytes.data(), pngBytes.size(), pDDraw, &surface, &w, &h)) {
         return false;
     }
 
-    *outSRV = srv;
+    *outSurface = surface;
     if (outWidth) *outWidth = w;
     if (outHeight) *outHeight = h;
     return true;

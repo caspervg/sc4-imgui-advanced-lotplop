@@ -1,3 +1,4 @@
+// Deprecated: DX11 image loader no longer used after migration to DX7 backend.
 #include "DX11ImageLoader.h"
 #include <d3d11.h>
 #include <wincodec.h>

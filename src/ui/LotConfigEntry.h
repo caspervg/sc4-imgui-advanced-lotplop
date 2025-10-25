@@ -4,7 +4,7 @@
 #include <unordered_set>
 
 // Forward declare D3D11 SRV to avoid including d3d11.h here.
-struct ID3D11ShaderResourceView;
+struct IDirectDrawSurface7; // DX7 texture surface
 
 struct LotConfigEntry {
     uint32_t id;
@@ -20,9 +20,9 @@ struct LotConfigEntry {
     // Item Icon instance (PNG resource instance id) saved during cache build
     uint32_t iconInstance = 0;
 
-    // Optional: Item Icon SRV (decoded lazily)
-    // Only used for ploppable buildings. SRV owned by the director; UI only reads it.
-    ID3D11ShaderResourceView* iconSRV = nullptr;
+    // Optional: Item Icon surface (decoded lazily)
+    // Only used for ploppable buildings. Surface owned by the director; UI only reads it.
+    IDirectDrawSurface7* iconSRV = nullptr; // DirectDraw surface used as ImTextureID
     int iconWidth = 0;
     int iconHeight = 0;
 

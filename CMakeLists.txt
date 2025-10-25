@@ -102,12 +102,12 @@ set(SOURCES
     ${SC4_DLL_BASICS_SOURCE_DIR}
     ${IMGUI_SOURCES}
     src/utils/Logger.cpp
-    src/utils/D3D11Hook.cpp
-    src/exemplar/ExemplarUtil.cpp
-    src/exemplar/IconResourceUtil.cpp
-    src/gfx/DX11ImageLoader.cpp
+    src/utils/D3D7Hook.cpp
+    src/gfx/DX7ImageLoader.cpp
     src/gfx/IconLoader.cpp
     src/utils/Config.cpp
+    src/exemplar/ExemplarUtil.cpp
+    src/exemplar/IconResourceUtil.cpp
     src/cache/LotCacheManager.cpp
     src/filter/LotFilterer.cpp
 )
@@ -117,7 +117,7 @@ set(HEADERS
     ${SC4_DLL_BASICS_HEADERS}
     ${IMGUI_HEADERS}
     ${CMAKE_SOURCE_DIR}/src/utils/Logger.h
-    ${CMAKE_SOURCE_DIR}/src/utils/D3D11Hook.h
+    ${CMAKE_SOURCE_DIR}/src/utils/D3D7Hook.h
     ${CMAKE_SOURCE_DIR}/src/exemplar/ExemplarUtil.h
         src/exemplar/PropertyUtil.cpp
         src/exemplar/PropertyUtil.h
@@ -147,7 +147,7 @@ target_link_libraries(${PROJECT_NAME}
 
 # Windows-specific libraries
 if(WIN32)
-    target_link_libraries(${PROJECT_NAME} PRIVATE kernel32 user32 Version d3d11 dxgi windowscodecs)
+    target_link_libraries(${PROJECT_NAME} PRIVATE kernel32 user32 Version d3d ddraw dxguid windowscodecs)
 endif()
 
 # Set output properties

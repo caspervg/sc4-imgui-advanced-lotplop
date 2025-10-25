@@ -314,14 +314,12 @@ void AdvancedLotPlopUI::RenderLotList() {
 
 void AdvancedLotPlopUI::RenderIconForEntry(const LotConfigEntry& entry) {
     if (entry.iconSRV && entry.iconWidth > 0 && entry.iconHeight > 0) {
-        // Lot PNG icons are 176x44 made of four 44x44 states; show the second 44x44 (enabled) [pixels 44..88]
         float u1 = (entry.iconWidth > 0) ? (44.0f / (float)entry.iconWidth) : 0.0f;
         float v1 = 0.0f;
         float u2 = (entry.iconWidth > 0) ? (88.0f / (float)entry.iconWidth) : 0.0f;
         float v2 = (entry.iconHeight > 0) ? (44.0f / (float)entry.iconHeight) : 0.0f;
         ImGui::Image((ImTextureID)entry.iconSRV, ImVec2(44, 44), ImVec2(u1, v1), ImVec2(u2, v2));
     } else {
-        // No icon available - show placeholder
         ImGui::Dummy(ImVec2(44, 44));
     }
 }

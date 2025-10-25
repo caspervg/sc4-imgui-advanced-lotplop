@@ -37,9 +37,9 @@
 #include "GZServPtrs.h"
 #include "args.hxx"
 #include <windows.h>
+#include <ddraw.h>
 #include "../vendor/imgui/imgui_impl_win32.h"
-#include "../vendor/imgui/imgui_impl_dx11.h"
-#include <d3d11.h>
+#include "../vendor/imgui/imgui_impl_dx7.h"
 
 #include "cGZPersistResourceKey.h"
 #include "cIGZPersistResourceManager.h"
@@ -47,7 +47,7 @@
 #include "cISC4Lot.h"
 #include "cISC4LotConfiguration.h"
 #include "cISC4LotConfigurationManager.h"
-#include "utils/D3D11Hook.h"
+// #include "utils/D3D11Hook.h" // Removed: migrating to DX7 backend
 #include "cIGZVariant.h"
 #include "cISCProperty.h"
 #include "cIGZCommandServer.h"
@@ -60,6 +60,8 @@
 #include "cache/LotCacheManager.h"
 #include "filter/LotFilterer.h"
 #include <string>
+
+#include "utils/D3D7Hook.h"
 
 class AdvancedLotPlopDllDirector;
 static constexpr uint32_t kMessageCheatIssued = 0x230E27AC;
@@ -117,12 +119,12 @@ public:
         lotCacheManager.Clear();
 
         if (imGuiInitialized) {
-            ImGui_ImplDX11_Shutdown();
+            ImGui_ImplDX7_Shutdown();
             ImGui_ImplWin32_Shutdown();
             ImGui::DestroyContext();
             imGuiInitialized = false;
         }
-        D3D11Hook::Shutdown();
+        D3D7Hook::Shutdown();
 
         Logger::Shutdown();
     }
@@ -184,13 +186,13 @@ public:
                 LOG_INFO("Got game window from framework: 0x{:X}", reinterpret_cast<uintptr_t>(hGameWindow));
 
                 ImGui::CreateContext();
-                if (D3D11Hook::Initialize(hGameWindow)) {
-                    LOG_INFO("D3D11Hook initialized successfully");
-                    D3D11Hook::SetPresentCallback(OnImGuiRender);
-                    ImGui_ImplWin32_Init(hGameWindow); // Win32 backend now; DX11 renderer later
+                if (D3D7Hook::Initialize(hGameWindow)) {
+                    LOG_INFO("D3D7Hook initialized successfully");
+                    D3D7Hook::SetRenderCallback(OnImGuiRender);
+                    ImGui_ImplWin32_Init(hGameWindow);
                     imGuiInitialized = true;
                 } else {
-                    LOG_WARN("D3D11Hook failed - ImGui will not be available");
+                    LOG_WARN("D3D7Hook failed - ImGui will not be available");
                     ImGui::DestroyContext();
                 }
             } else {
@@ -250,7 +252,7 @@ public:
             pendingCacheBuild = false;
 
             cIGZPersistResourceManagerPtr pRM;
-            ID3D11Device* pDevice = D3D11Hook::GetDevice();
+            IDirectDraw7* pDDraw = D3D7Hook::GetDDraw();
 
             auto progressCallback = [](const char* stage, int current, int total) {
                 if (GetLotPlopDirector()) {
@@ -258,7 +260,7 @@ public:
                 }
             };
 
-            lotCacheManager.BuildCache(pCity, pRM, pDevice, progressCallback);
+            lotCacheManager.BuildCache(pCity, pRM, pDDraw, progressCallback);
             mUI.ShowLoadingWindow(false);
             // Now that the cache is ready, immediately refresh the filtered list
             RefreshLotList();
@@ -426,11 +428,9 @@ private:
     }
 
     static void OnImGuiRender(
-        ID3D11Device *pDevice,
-        ID3D11DeviceContext *pContext,
-        IDXGISwapChain *pSwapChain) {
+	    IDirect3DDevice7* pDevice,
+	    IDirectDrawSurface7* pPrimarySurface) {
         static bool initialized = false;
-        static ID3D11RenderTargetView *pRTV = nullptr;
 
         // If ImGui context has been destroyed, skip rendering safely
         if (ImGui::GetCurrentContext() == nullptr) {
@@ -439,31 +439,18 @@ private:
 
         // Lazy initialize renderer backend
         if (!initialized) {
-            HWND hWnd = D3D11Hook::GetGameWindow();
-            if (hWnd && pDevice && pContext) {
-                ImGui_ImplDX11_Init(pDevice, pContext);
+            HWND hWnd = D3D7Hook::GetGameWindow();
+            IDirectDraw7* pDDraw = D3D7Hook::GetDDraw();
+            if (hWnd && pDevice && pDDraw) {
+                ImGui_ImplDX7_Init(pDevice, pDDraw);
                 initialized = true;
-                LOG_INFO("ImGui DX11 backend initialized in render callback");
+                LOG_INFO("ImGui DX7 backend initialized in render callback");
             }
         }
         if (!initialized) return;
 
-        // Create RTV once from swap chain
-        if (!pRTV && pSwapChain) {
-            ID3D11Texture2D *pBackBuffer = nullptr;
-            HRESULT hr = pSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void **>(&pBackBuffer));
-            if (SUCCEEDED(hr) && pBackBuffer) {
-                pDevice->CreateRenderTargetView(pBackBuffer, nullptr, &pRTV);
-                pBackBuffer->Release();
-                LOG_INFO("Created DX11 render target view for ImGui");
-            }
-        }
-        if (pRTV) {
-            pContext->OMSetRenderTargets(1, &pRTV, nullptr);
-        }
-
         // Frame setup
-        ImGui_ImplDX11_NewFrame();
+        ImGui_ImplDX7_NewFrame();
         ImGui_ImplWin32_NewFrame();
         ImGui::NewFrame();
 
@@ -475,7 +462,7 @@ private:
 
         // Render
         ImGui::Render();
-        ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
+        ImGui_ImplDX7_RenderDrawData(ImGui::GetDrawData());
     }
 };
 

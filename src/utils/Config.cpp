@@ -104,7 +104,11 @@ namespace Config {
                 }
                 if (uiSec.has("Favorites")) {
                     st.favorites.clear();
-                    std::string csv = uiSec["Favorites"]; std::istringstream iss(csv); std::string tok; while (std::getline(iss, tok, ',')) { uint32_t id = ParseUInt(tok); if (id) st.favorites.push_back(id); }
+                    std::string csv = uiSec["Favorites"];
+                	std::istringstream iss(csv);
+                	std::string tok;
+                	while (std::getline(iss, tok, ','))
+                		{ uint32_t id = ParseUInt(tok); if (id) st.favorites.push_back(id); }
                 }
             }
         }
@@ -163,6 +167,7 @@ namespace Config {
         uiSec["SelectedGroups"] = oss.str();
         std::ostringstream favoss; for (size_t i=0;i<state.favorites.size();++i){ if(i) favoss << ","; favoss << "0x" << std::hex << std::uppercase << state.favorites[i] << std::dec; }
         uiSec["Favorites"] = favoss.str();
+        // MRU persistence removed
 
         file.write(ini);
     }

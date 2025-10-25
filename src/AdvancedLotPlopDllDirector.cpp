@@ -377,16 +377,11 @@ private:
         // Get the game's internal variant and patch it directly
         cIGZVariant* storedParam = pCmd1->GetParameter(0);
         if (storedParam) {
-            // uint32_t* ptr = reinterpret_cast<uint32_t*>(storedParam);
-            // uint16_t* shortPtr = reinterpret_cast<uint16_t*>(storedParam);
-            //
-            // ptr[1] = lotID;       // Data at offset +0x04
-            // shortPtr[7] = 0x0006; // Type=6 (Uint32) at offset +0x0E
-
         	storedParam->SetValUint32(lotID);
         }
 
         pView3D->ProcessCommand(0xec3e82f8, *pCmd1, *pCmd2);
+    	mUI.RegisterPlop(lotID);
 
         if (bool *pShow = mUI.GetShowWindowPtr()) {
             *pShow = false;

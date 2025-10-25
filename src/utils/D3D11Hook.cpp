@@ -1,8 +1,6 @@
-// ...new file...
 #include "D3D11Hook.h"
 #include "Logger.h"
 #include "imgui.h"
-#include "imgui_impl_win32.h"
 
 // Forward declaration for ImGui Win32 WndProc handler
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);

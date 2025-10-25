@@ -24,6 +24,7 @@ namespace Config {
         std::vector<uint32_t> selectedGroups; // occupant groups selected in filter
         uint32_t selectedLotID = 0; // last selected lot
         std::vector<uint32_t> favorites; // persisted favorite lot IDs
+        bool favoritesOnly = false; // show only favorites filter
     };
 
     // Returns reference to loaded UI state (LoadOnce ensures initialization)

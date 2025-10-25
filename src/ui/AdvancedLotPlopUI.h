@@ -51,6 +51,8 @@ public:
 	void ToggleFavorite(uint32_t lotID);
 	void RegisterPlop(uint32_t lotID);
 	const std::vector<LotConfigEntry>& GetMRUEntries() const { return mruOrdered; }
+	bool IsFavoritesOnly() const { return favoritesOnly; }
+	void SetFavoritesOnly(bool v) { favoritesOnly = v; MarkListDirty(); SavePersistedState(); if (callbacks.OnRefreshList) callbacks.OnRefreshList(); }
 
 private:
 	// Tabbed view helpers
@@ -83,4 +85,5 @@ private:
 	std::vector<LotConfigEntry> mruOrdered; // store full entries instead of IDs; not persisted
 	static constexpr size_t kMaxMRU = 10;
 	LotViewMode currentViewMode = LotViewMode::All; // Active tab
+	bool favoritesOnly = false; // filter toggle
 };

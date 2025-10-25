@@ -199,6 +199,15 @@ void AdvancedLotPlopUI::RenderFilters()
 			if (callbacks.OnRefreshList) callbacks.OnRefreshList();
 		}
 
+		// Favorites-only checkbox inline with Zone/Wealth
+		ImGui::TableSetColumnIndex(2);
+		if (ImGui::Checkbox("Favorites only", &favoritesOnly))
+		{
+			MarkListDirty();
+			SavePersistedState();
+			if (callbacks.OnRefreshList) callbacks.OnRefreshList();
+		}
+
 		ImGui::TableNextRow();
 		ImGui::TableSetColumnIndex(0);
 		ImGui::SetNextItemWidth(-FLT_MIN);
@@ -252,6 +261,7 @@ void AdvancedLotPlopUI::RenderFilters()
 		maxSizeZ = 16;
 		searchBuffer[0] = '\0';
 		selectedOccupantGroups.clear();
+		favoritesOnly = false; // reset favoritesOnly when clearing filters
 		MarkListDirty();
 		SavePersistedState();
 		if (callbacks.OnRefreshList) callbacks.OnRefreshList();
@@ -390,20 +400,32 @@ void AdvancedLotPlopUI::RenderLotList()
 		indices.clear();
 		if (lotEntries)
 		{
-			indices = LotConfigTable::BuildSortedIndex(*lotEntries, favoritesSet, ImGui::TableGetSortSpecs());
-			if (ImGuiTableSortSpecs* sort_specs = ImGui::TableGetSortSpecs())
+			// Build filtered index first honoring favoritesOnly
+			std::vector<int> filtered;
+			filtered.reserve(lotEntries->size());
+			for (size_t i = 0; i < lotEntries->size(); ++i)
 			{
-				sort_specs->SpecsDirty = false;
+				const auto& e = (*lotEntries)[i];
+				if (favoritesOnly && !IsFavorite(e.id)) continue;
+				filtered.push_back((int)i);
 			}
-
+			// Sort the filtered indices using existing helper by creating temp vector of entries
+			std::vector<LotConfigEntry> temp;
+			temp.reserve(filtered.size());
+			for (int idx : filtered) temp.push_back((*lotEntries)[(size_t)idx]);
+			std::vector<int> sortOrder = LotConfigTable::BuildSortedIndex(temp, favoritesSet, ImGui::TableGetSortSpecs());
+			indices.clear();
+			indices.reserve(sortOrder.size());
+			for (int si : sortOrder) indices.push_back(filtered[(size_t)si]);
+			if (ImGuiTableSortSpecs* sort_specs = ImGui::TableGetSortSpecs()) sort_specs->SpecsDirty = false;
 			ImGuiListClipper clipper;
-			clipper.Begin(static_cast<int>(lotEntries->size()));
+			clipper.Begin(static_cast<int>(indices.size()));
 			while (clipper.Step())
 			{
 				for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; ++row)
 				{
-					int idx = indices.empty() ? row : indices[static_cast<size_t>(row)];
-					const auto& entry = (*lotEntries)[static_cast<size_t>(idx)];
+					int idx = indices.empty() ? row : indices[(size_t)row];
+					const auto& entry = (*lotEntries)[(size_t)idx];
 					ImGui::TableNextRow();
 
 					// Ensure unique ImGui ID scope per row to avoid ID collisions when labels repeat
@@ -525,6 +547,7 @@ void AdvancedLotPlopUI::LoadPersistedState()
 	searchBuffer[sizeof(searchBuffer) - 1] = '\0';
 	selectedOccupantGroups = st.selectedGroups;
 	selectedLotIID = st.selectedLotID;
+	favoritesOnly = st.favoritesOnly;
 
 	favoritesSet.clear();
 	favoritesOrdered.clear();
@@ -551,6 +574,7 @@ void AdvancedLotPlopUI::SavePersistedState()
 	st.selectedGroups = selectedOccupantGroups;
 	st.selectedLotID = selectedLotIID;
 	st.favorites.assign(favoritesOrdered.begin(), favoritesOrdered.end());
+	st.favoritesOnly = favoritesOnly;
 	Config::SaveUIState(st);
 }
 

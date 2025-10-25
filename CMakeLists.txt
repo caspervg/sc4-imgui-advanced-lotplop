@@ -45,105 +45,84 @@ if(MSVC)
 endif()
 
 add_subdirectory(vendor/spdlog)
-add_subdirectory(vendor/args)
 add_subdirectory(vendor/mINI)
 
-include(FetchContent)
-set(WIL_BUILD_TESTS FALSE)
-FetchContent_Declare(WIL
-        URL https://github.com/microsoft/wil/archive/refs/tags/v1.0.250325.1.zip)
-FetchContent_MakeAvailable(WIL)
-
-FetchContent_Declare(json URL https://github.com/nlohmann/json/releases/download/v3.12.0/json.tar.xz)
-FetchContent_MakeAvailable(json)
-
-# gzcom-dll doesn't have CMakeLists.txt, so we include it directly
-set(GZCOM_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/vendor/gzcom-dll/gzcom-dll/include)
-set(GZCOM_SOURCE_DIR ${CMAKE_SOURCE_DIR}/vendor/gzcom-dll/gzcom-dll/src)
+# ImGui library (vendor/imgui has no CMakeLists)
 set(IMGUI_DIR ${CMAKE_SOURCE_DIR}/vendor/imgui)
 
-# sc4-dll-basics doesn't have CMakeLists.txt, so we include it directly
-set(SC4_DLL_BASICS_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/vendor/sc4-dll-basics/include)
-set(SC4_DLL_BASICS_SOURCE_DIR ${CMAKE_SOURCE_DIR}/vendor/sc4-dll-basics/src)
-
-# Automatically find all gzcom-dll source files, excluding main.cpp
-file(GLOB GZCOM_SOURCES "${GZCOM_SOURCE_DIR}/*.cpp")
-file(GLOB GZCOM_HEADERS "${GZCOM_INCLUDE_DIR}/*.h")
-file(GLOB SC4_DLL_BASICS_SOURCE_DIR "${SC4_DLL_BASICS_SOURCE_DIR}/*.cpp")
-file(GLOB SC4_DLL_BASICS_HEADERS "${SC4_DLL_BASICS_INCLUDE_DIR}/*.h")
-file(GLOB IMGUI_SOURCES "${IMGUI_DIR}/*.cpp")
-file(GLOB IMGUI_HEADERS "${IMGUI_DIR}/*.h")
-
-list(REMOVE_ITEM GZCOM_SOURCES
-        "${GZCOM_SOURCE_DIR}/main.cpp"
-        "${GZCOM_SOURCE_DIR}/cGZCityHallUpgradeDllDirector.cpp"
-        "${GZCOM_SOURCE_DIR}/cGZCustomDllDirector.cpp"
-        "${GZCOM_SOURCE_DIR}/cGZExampleDllDirector.cpp"
-        "${GZCOM_SOURCE_DIR}/cGZExtraCheatsDllDirector.cpp"
-        "${GZCOM_SOURCE_DIR}/cGZExtraExtraCheatsDllDirector.cpp"
+# Add all core ImGui .cpp and .h files
+file(GLOB IMGUI_CORE_SOURCES
+    ${IMGUI_DIR}/*.cpp
+    ${IMGUI_DIR}/*.h
 )
-list(APPEND GZCOM_SOURCES
-        "${GZCOM_SOURCE_DIR}/cRZCOMDllDirector.cpp"
+
+# Explicitly add the Win32 and DX11 backend files
+set(IMGUI_BACKENDS
+    ${IMGUI_DIR}/backends/imgui_impl_win32.h
+    ${IMGUI_DIR}/backends/imgui_impl_win32.cpp
+    ${IMGUI_DIR}/backends/imgui_impl_dx11.h
+    ${IMGUI_DIR}/backends/imgui_impl_dx11.cpp
+)
+
+add_library(imgui STATIC ${IMGUI_CORE_SOURCES} ${IMGUI_BACKENDS})
+
+target_include_directories(imgui PUBLIC
+    ${IMGUI_DIR}
+    ${IMGUI_DIR}/backends
+)
+
+# GZCOM-DLL (vendor/gzcom-dll has sources, build local static lib)
+set(GZCOM_DIR ${CMAKE_SOURCE_DIR}/vendor/gzcom-dll/gzcom-dll)
+
+# Collect all public headers and sources
+file(GLOB_RECURSE GZCOM_HEADERS
+    ${GZCOM_DIR}/include/*.h
+    ${GZCOM_DIR}/include/*.hpp
+)
+file(GLOB_RECURSE GZCOM_SOURCES
+    ${GZCOM_DIR}/src/*.cpp
+)
+
+# Exclude vendor app entry and example directors from gzcom sources
+list(REMOVE_ITEM GZCOM_SOURCES
+    ${GZCOM_DIR}/src/main.cpp
+    ${GZCOM_DIR}/src/cGZExampleDllDirector.cpp
+    ${GZCOM_DIR}/src/cGZExtraCheatsDllDirector.cpp
+    ${GZCOM_DIR}/src/cGZExtraExtraCheatsDllDirector.cpp
+    ${GZCOM_DIR}/src/cGZCityHallUpgradeDllDirector.cpp
+)
+
+# Build gzcom2 as a static library to match existing linkage
+add_library(gzcom2 STATIC ${GZCOM_SOURCES} ${GZCOM_HEADERS})
+
+# Expose include path to dependents
+target_include_directories(gzcom2 PUBLIC
+    ${GZCOM_DIR}/include
 )
 
 # Include directories
 include_directories(
     ${CMAKE_SOURCE_DIR}/src
-    ${GZCOM_INCLUDE_DIR}
-    ${SC4_DLL_BASICS_INCLUDE_DIR}
 )
 
 # Our source files
-set(SOURCES
-    src/AdvancedLotPlopDllDirector.cpp
-    src/ui/AdvancedLotPlopUI.cpp
-    src/ui/LotConfigTableEntry.cpp
-    ${GZCOM_SOURCES}
-    ${SC4_DLL_BASICS_SOURCE_DIR}
-    ${IMGUI_SOURCES}
-    src/utils/Logger.cpp
-    src/utils/D3D11Hook.cpp
-    src/exemplar/ExemplarUtil.cpp
-    src/exemplar/IconResourceUtil.cpp
-    src/gfx/DX11ImageLoader.cpp
-    src/gfx/IconLoader.cpp
-    src/utils/Config.cpp
-    src/cache/LotCacheManager.cpp
-    src/filter/LotFilterer.cpp
-)
-
-set(HEADERS
-    ${GZCOM_HEADERS}
-    ${SC4_DLL_BASICS_HEADERS}
-    ${IMGUI_HEADERS}
-    ${CMAKE_SOURCE_DIR}/src/utils/Logger.h
-    ${CMAKE_SOURCE_DIR}/src/utils/D3D11Hook.h
-    ${CMAKE_SOURCE_DIR}/src/exemplar/ExemplarUtil.h
-        src/exemplar/PropertyUtil.cpp
-        src/exemplar/PropertyUtil.h
+file(GLOB_RECURSE PROJECT_SOURCES CONFIGURE_DEPENDS
+    ${CMAKE_SOURCE_DIR}/src/*.cpp
 )
 
 # Create the main DLL with explicit exports
-add_library(${PROJECT_NAME} SHARED ${SOURCES} ${HEADERS} SC4AdvancedLotPlop.def)
-
-## Add STLport includes BEFORE other includes
-#target_include_directories(${PROJECT_NAME} BEFORE PRIVATE
-#        ${STLPORT_ROOT}/stlport
-#)
-#
-#target_compile_definitions(${PROJECT_NAME} PRIVATE
-#        _STLP_NO_OWN_IOSTREAMS
-#)
+add_library(${PROJECT_NAME} SHARED ${PROJECT_SOURCES} ${HEADERS} SC4AdvancedLotPlop.def)
 
 # Link libraries
 target_link_libraries(${PROJECT_NAME}
     PRIVATE
     spdlog
-    WIL::WIL
-    args
     mINI
-    nlohmann_json
+    imgui
+    gzcom2
 )
+
+target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/vendor/wil/include)
 
 # Windows-specific libraries
 if(WIN32)

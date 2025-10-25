@@ -19,47 +19,42 @@
  * If not, see <http://www.gnu.org/licenses/>.
  */
 // ReSharper disable CppDFAUnreachableCode
-#include "version.h"
-#include "utils/Logger.h"
+#include <d3d11.h>
+#include <string>
+#include <windows.h>
+
+#include "cGZPersistResourceKey.h"
 #include "cIGZApp.h"
 #include "cIGZCheatCodeManager.h"
 #include "cIGZCOM.h"
+#include "cIGZCommandParameterSet.h"
+#include "cIGZCommandServer.h"
 #include "cIGZFrameWork.h"
 #include "cIGZFrameWorkW32.h"
 #include "cIGZMessage2Standard.h"
 #include "cIGZMessageServer2.h"
+#include "cIGZPersistResourceManager.h"
+#include "cIGZVariant.h"
+#include "cIGZWin.h"
+#include "cIGZWinKeyAcceleratorRes.h"
 #include "cISC4App.h"
 #include "cISC4City.h"
 #include "cISC4View3DWin.h"
 #include "cRZAutoRefCount.h"
 #include "cRZBaseString.h"
+#include "cRZBaseVariant.h"
 #include "cRZMessage2COMDirector.h"
 #include "GZServPtrs.h"
-#include "args.hxx"
-#include <windows.h>
-#include "../vendor/imgui/imgui_impl_win32.h"
-#include "../vendor/imgui/imgui_impl_dx11.h"
-#include <d3d11.h>
-
-#include "cGZPersistResourceKey.h"
-#include "cIGZPersistResourceManager.h"
-#include "cIGZWinKeyAcceleratorRes.h"
-#include "cISC4Lot.h"
-#include "cISC4LotConfiguration.h"
-#include "cISC4LotConfigurationManager.h"
-#include "utils/D3D11Hook.h"
-#include "cIGZVariant.h"
-#include "cISCProperty.h"
-#include "cIGZCommandServer.h"
-#include "cIGZCommandParameterSet.h"
-#include "cIGZWin.h"
-#include "cRZBaseVariant.h"
-#include "ui/LotConfigEntry.h"
-#include "ui/AdvancedLotPlopUI.h"
-#include "utils/Config.h"
+#include "imgui_impl_dx11.h"
+#include "imgui_impl_win32.h"
+#include "version.h"
 #include "cache/LotCacheManager.h"
 #include "filter/LotFilterer.h"
-#include <string>
+#include "ui/AdvancedLotPlopUI.h"
+#include "ui/LotConfigEntry.h"
+#include "utils/Config.h"
+#include "utils/D3D11Hook.h"
+#include "utils/Logger.h"
 
 class AdvancedLotPlopDllDirector;
 static constexpr uint32_t kMessageCheatIssued = 0x230E27AC;

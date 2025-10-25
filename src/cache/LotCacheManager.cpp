@@ -20,22 +20,25 @@
  */
 // ReSharper disable CppDFAUnreachableCode
 #include "LotCacheManager.h"
-#include "../utils/Logger.h"
+
+#include <d3d11.h>
+
+#include "cGZPersistResourceKey.h"
+#include "cIGZPersistResourceKeyList.h"
+#include "cIGZPersistResourceManager.h"
+#include "cIGZVariant.h"
 #include "cISC4City.h"
 #include "cISC4LotConfiguration.h"
 #include "cISC4LotConfigurationManager.h"
-#include "cIGZPersistResourceManager.h"
-#include "cIGZPersistResourceKeyList.h"
-#include "cGZPersistResourceKey.h"
 #include "cISCProperty.h"
-#include "cIGZVariant.h"
 #include "cRZBaseString.h"
 #include "GZServPtrs.h"
+#include "SC4HashSet.h"
 #include "../exemplar/ExemplarUtil.h"
 #include "../exemplar/IconResourceUtil.h"
 #include "../exemplar/PropertyUtil.h"
 #include "../gfx/IconLoader.h"
-#include <d3d11.h>
+#include "../utils/Logger.h"
 
 LotCacheManager::LotCacheManager()
     : cacheInitialized(false) {

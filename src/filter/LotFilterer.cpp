@@ -19,15 +19,18 @@
  * If not, see <http://www.gnu.org/licenses/>.
  */
 #include "LotFilterer.h"
+
+#include <algorithm>
+#include <cctype>
+#include <string>
+
+#include "cISC4BuildingOccupant.h"
 #include "cISC4City.h"
 #include "cISC4LotConfiguration.h"
 #include "cISC4LotConfigurationManager.h"
 #include "cISC4ZoneManager.h"
-#include "cISC4BuildingOccupant.h"
+#include "SC4HashSet.h"
 #include "ui/LotConfigEntry.h"
-#include <algorithm>
-#include <cctype>
-#include <string>
 
 void LotFilterer::FilterLots(
     cISC4City* pCity,

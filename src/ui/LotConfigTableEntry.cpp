@@ -1,6 +1,8 @@
 #include "LotConfigTableEntry.h"
-#include "../vendor/imgui/imgui.h"
-#include <cstring>
+
+#include <algorithm>
+
+#include "imgui.h"
 
 namespace LotConfigTable {
 

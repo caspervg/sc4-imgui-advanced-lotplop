@@ -21,8 +21,9 @@
 #pragma once
 #include <unordered_map>
 #include <vector>
-#include "cRZAutoRefCount.h"
+
 #include "cISCPropertyHolder.h"
+#include "cRZAutoRefCount.h"
 #include "../ui/LotConfigEntry.h"
 
 class cISC4City;

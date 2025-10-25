@@ -1,7 +1,9 @@
 #include "Logger.h"
-#include <filesystem>
-#include <cstdlib>
 
+#include <cstdlib>
+#include <filesystem>
+
+#include "spdlog/sinks/basic_file_sink.h"
 #include "spdlog/sinks/msvc_sink.h"
 
 std::shared_ptr<spdlog::logger> Logger::s_logger = nullptr;

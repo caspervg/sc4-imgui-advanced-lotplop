@@ -19,9 +19,11 @@
  * If not, see <http://www.gnu.org/licenses/>.
  */
 #include "IconLoader.h"
+
+#include <vector>
+
 #include "DX11ImageLoader.h"
 #include "../exemplar/IconResourceUtil.h"
-#include <vector>
 
 bool IconLoader::LoadIconFromPNG(
     cIGZPersistResourceManager* pRM,

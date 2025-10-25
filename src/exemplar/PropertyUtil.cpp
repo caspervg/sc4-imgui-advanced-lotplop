@@ -20,6 +20,7 @@
  */
 
 #include "PropertyUtil.h"
+
 #include "cIGZVariant.h"
 #include "cISCProperty.h"
 #include "SCPropertyUtil.h"

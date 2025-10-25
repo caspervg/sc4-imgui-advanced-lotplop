@@ -1,8 +1,7 @@
 #pragma once
 
 #include <vector>
-#include <string>
-#include <cstdint>
+
 #include "cISC4City.h"
 #include "cISC4LotConfiguration.h"
 

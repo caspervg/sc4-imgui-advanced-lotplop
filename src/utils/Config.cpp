@@ -1,7 +1,8 @@
 #include "Config.h"
+
+#include <mutex>
 #include <windows.h>
 #include <mINI/ini.h>
-#include <mutex>
 
 namespace Config {
     static std::once_flag g_once;

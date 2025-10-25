@@ -1,11 +1,12 @@
 #include "AdvancedLotPlopUI.h"
-#include "../vendor/imgui/imgui.h"
-#include "LotConfigEntry.h"
-#include "LotConfigTableEntry.h"
-#include "../utils/Config.h"
 
 #include <algorithm>
 #include <unordered_set>
+
+#include "LotConfigEntry.h"
+#include "LotConfigTableEntry.h"
+#include "../utils/Config.h"
+#include "../vendor/imgui/imgui.h"
 
 AdvancedLotPlopUI::AdvancedLotPlopUI() {
     searchBuffer[0] = '\0';

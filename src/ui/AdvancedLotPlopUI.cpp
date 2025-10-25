@@ -428,6 +428,13 @@ void AdvancedLotPlopUI::RenderLotList()
 						selectedLotIID = entry.id;
 						SavePersistedState();
 					}
+					// Double-click anywhere on the row to immediately plop
+					if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+					{
+						selectedLotIID = entry.id;
+						SavePersistedState();
+						if (callbacks.OnPlop) callbacks.OnPlop(entry.id);
+					}
 
 					ImGui::TableSetColumnIndex(3);
 					ImGui::Text("%s", entry.name.c_str());
@@ -620,6 +627,13 @@ void AdvancedLotPlopUI::RenderRecentLotList()
 				{
 					selectedLotIID = entry.id;
 					SavePersistedState();
+				}
+				// Double-click anywhere on the recent row to plop
+				if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+				{
+					selectedLotIID = entry.id;
+					SavePersistedState();
+					if (callbacks.OnPlop) callbacks.OnPlop(entry.id);
 				}
 				ImGui::TableSetColumnIndex(3);
 				ImGui::Text("%s", entry.name.c_str());

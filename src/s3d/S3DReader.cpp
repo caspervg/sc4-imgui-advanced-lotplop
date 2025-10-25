@@ -30,7 +30,8 @@ bool Reader::Parse(const uint8_t* buffer, size_t bufferSize, Model& outModel) {
 	// Parse chunks in order
 	if (!ParseHEAD(ptr, end, outModel)) return false;
 	if (!ParseVERT(ptr, end, outModel)) return false;
-	if (!ParseINDX(ptr, end, outModel)) return false;
+	if (!ParseINDX(ptr, end, ou
+		tModel)) return false;
 	if (!ParsePRIM(ptr, end, outModel)) return false;
 	if (!ParseMATS(ptr, end, outModel)) return false;
 	if (!ParseANIM(ptr, end, outModel)) return false;
@@ -121,6 +122,7 @@ bool Reader::ReadVertex(const uint8_t*& ptr, const uint8_t* end,
 	DecodeVertexFormat(format, coordsNb, colorsNb, texsNb);
 
 	// Read position (always present)
+	// For billboard rendering, keep coordinates as-is from file
 	if (!ReadValue(ptr, end, outVertex.position.x)) return false;
 	if (!ReadValue(ptr, end, outVertex.position.y)) return false;
 	if (!ReadValue(ptr, end, outVertex.position.z)) return false;

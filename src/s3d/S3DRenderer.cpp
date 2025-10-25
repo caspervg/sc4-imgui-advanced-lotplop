@@ -4,6 +4,8 @@
 #include "cISC4DBSegment.h"
 #include "cIGZPersistResourceManager.h"
 #include <d3dcompiler.h>
+#include <algorithm>
+#include <cfloat>
 
 #pragma comment(lib, "d3dcompiler.lib")
 
@@ -148,9 +150,9 @@ bool Renderer::CreateStates() {
 	// Create sampler state
 	D3D11_SAMPLER_DESC samplerDesc = {};
 	samplerDesc.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
-	samplerDesc.AddressU = D3D11_TEXTURE_ADDRESS_WRAP;
-	samplerDesc.AddressV = D3D11_TEXTURE_ADDRESS_WRAP;
-	samplerDesc.AddressW = D3D11_TEXTURE_ADDRESS_WRAP;
+	samplerDesc.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
+	samplerDesc.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
+	samplerDesc.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
 	samplerDesc.ComparisonFunc = D3D11_COMPARISON_NEVER;
 	samplerDesc.MinLOD = 0;
 	samplerDesc.MaxLOD = D3D11_FLOAT32_MAX;
@@ -251,10 +253,7 @@ bool Renderer::CreateMaterials(const Model& model, cIGZPersistResourceManager* p
 
 			// Try multiple common texture group IDs
 			const uint32_t textureGroups[] = {
-				groupID,        // Model's group ID (from S3D resource)
-				0x159787AF,     // Common prop texture group
-				0x1ABE787D,     // Another common prop texture group
-				0x13A0BD51      // Yet another texture group
+				groupID        // Model's group ID (from S3D resource)
 			};
 
 			for (uint32_t tryGroup : textureGroups) {
@@ -434,66 +433,83 @@ void Renderer::ClearModel() {
 	m_modelLoaded = false;
 }
 
-DirectX::XMMATRIX Renderer::CalculateViewProjMatrix() const {
+DirectX::XMMATRIX Renderer::CalculateViewProjMatrix() const
+{
 	using namespace DirectX;
 
-	// Calculate bounding box center and size
-	XMFLOAT3 center(
-		(m_bbMin.x + m_bbMax.x) * 0.5f,
-		(m_bbMin.y + m_bbMax.y) * 0.5f,
-		(m_bbMin.z + m_bbMax.z) * 0.5f
-	);
+	LOG_DEBUG("CalcViewProj: bbMin=({:.3f},{:.3f},{:.3f}) bbMax=({:.3f},{:.3f},{:.3f})",
+		m_bbMin.x, m_bbMin.y, m_bbMin.z, m_bbMax.x, m_bbMax.y, m_bbMax.z);
 
-	float sizeX = m_bbMax.x - m_bbMin.x;
-	float sizeY = m_bbMax.y - m_bbMin.y;
-	float sizeZ = m_bbMax.z - m_bbMin.z;
+	const float ry_deg = -22.5f; // rotate slightly left
+	const float rx_deg = 45.0f;  // tilt down
 
-	// Handle flat/2D props (like ground textures/billboards)
-	if (sizeY < 0.1f) {
-		sizeY = max(sizeX, sizeZ) * 0.1f; // Use 10% of horizontal size as height
+	XMMATRIX rotY_pos = XMMatrixRotationY(XMConvertToRadians(22.5f));   // +22.5 for bounds
+	XMMATRIX rotX_neg = XMMatrixRotationX(XMConvertToRadians(-45.0f));  // -45 for bounds
+
+	const float minx = m_bbMin.x, miny = m_bbMin.y, minz = m_bbMin.z;
+	const float maxx = m_bbMax.x, maxy = m_bbMax.y, maxz = m_bbMax.z;
+
+	XMVECTOR corners[8] = {
+		XMVectorSet(minx, miny, minz, 1.0f), XMVectorSet(maxx, miny, minz, 1.0f),
+		XMVectorSet(minx, maxy, minz, 1.0f), XMVectorSet(maxx, maxy, minz, 1.0f),
+		XMVectorSet(minx, miny, maxz, 1.0f), XMVectorSet(maxx, miny, maxz, 1.0f),
+		XMVectorSet(minx, maxy, maxz, 1.0f), XMVectorSet(maxx, maxy, maxz, 1.0f)
+	};
+
+	float minX = FLT_MAX, minY = FLT_MAX;
+	float maxX = -FLT_MAX, maxY = -FLT_MAX;
+	float maxZ = -FLT_MAX;
+	for (int i = 0; i < 8; ++i) {
+		XMVECTOR v = XMVector3Transform(corners[i], rotY_pos);
+		v = XMVector3Transform(v, rotX_neg);
+		XMFLOAT3 vf; XMStoreFloat3(&vf, v);
+		minX = (std::min)(minX, vf.x); maxX = (std::max)(maxX, vf.x);
+		minY = (std::min)(minY, vf.y); maxY = (std::max)(maxY, vf.y);
+		maxZ = (std::max)(maxZ, vf.z);
 	}
+	LOG_DEBUG("Rotated bounds: X[{:.3f},{:.3f}] Y[{:.3f},{:.3f}] maxZ={:.3f}",
+		minX, maxX, minY, maxY, maxZ);
 
-	float maxSize = max(sizeX, sizeY);
-	maxSize = max(maxSize, sizeZ) * 1.5f; // 50% padding
+	const float padding = 1.10f; // 10%
+	float width = (maxX - minX);
+	float height = (maxY - minY);
+	float diff = (std::max)(width, height) * padding;
+	if (diff < 1e-4f) diff = 1.0f;
 
-	LOG_DEBUG("S3D bbox: center=({:.2f}, {:.2f}, {:.2f}), size=({:.2f}, {:.2f}, {:.2f}), maxSize={:.2f}",
-	          center.x, center.y, center.z, sizeX, sizeY, sizeZ, maxSize);
+	float posx = (minX + maxX) * 0.5f;
+	float posy = (minY + maxY) * 0.5f;
+	float posz = maxZ;
 
-	// Based on GlViewS3D.cpp reference implementation:
-	// 1. Translate to center object
-	// 2. Swap Y/Z axes (SC4 coordinate convention: stored Y is actually Z in world space)
-	// 3. Scale by 0.01 (SC4 stores coordinates in centimeters, render in meters)
-	// 4. Rotate 45° around X axis (tilt down)
-	// 5. Rotate -22.5° around Y axis (slight left rotation)
-	// 6. Flip Z axis for SC4's reversed Z coordinate
-	// 7. Orthographic projection
+	LOG_DEBUG("Ortho diff={:.3f} width={:.3f} height={:.3f} center=({:.3f},{:.3f},{:.3f})",
+		diff, width, height, posx, posy, posz);
 
-	XMMATRIX model = XMMatrixIdentity();
+	// View matrix following Python S3DViewer billboard approach:
+	// 1. Scale Z by -1 (glScalef(1,1,-1))
+	// 2. Translate to center
+	// 3. Rotate X by 45°
+	// 4. Rotate Y by -22.5°
+	XMMATRIX view = XMMatrixIdentity();
+	view *= XMMatrixScaling(1.0f, 1.0f, -1.0f);        // Z-flip for billboard
+	view *= XMMatrixTranslation(-posx, -posy, -posz);   // Center model
+	view *= XMMatrixRotationX(XMConvertToRadians(rx_deg)); // Tilt down 45°
+	view *= XMMatrixRotationY(XMConvertToRadians(ry_deg)); // Rotate -22.5°
 
-	// Translate to center
-	//model *= XMMatrixTranslation(-center.x, -center.y, -center.z);
+	XMMATRIX proj = XMMatrixOrthographicLH(diff, diff, -40000.0f, 40000.0f);
+	XMMATRIX viewProj = view * proj;
 
-	// Swap Y and Z axes (glVertex3f(x, z, y) in reference implementation)
-	// Create axis swap matrix: X→X, Y→Z, Z→Y
-	XMMATRIX axisSwap = XMMatrixIdentity();
-	axisSwap.r[1] = XMVectorSet(0, 0, 1, 0);  // New Y = old Z
-	axisSwap.r[2] = XMVectorSet(0, 1, 0, 0);  // New Z = old Y
-	model *= axisSwap;
+	XMFLOAT4X4 vp;
+	XMStoreFloat4x4(&vp, viewProj);
+	LOG_DEBUG("ViewProj rows: "
+		"[{:.3f} {:.3f} {:.3f} {:.3f}] "
+		"[{:.3f} {:.3f} {:.3f} {:.3f}] "
+		"[{:.3f} {:.3f} {:.3f} {:.3f}] "
+		"[{:.3f} {:.3f} {:.3f} {:.3f}]",
+		vp._11, vp._12, vp._13, vp._14,
+		vp._21, vp._22, vp._23, vp._24,
+		vp._31, vp._32, vp._33, vp._34,
+		vp._41, vp._42, vp._43, vp._44);
 
-	// Scale from centimeters to meters (divide by 100)
-	//model *= XMMatrixScaling(0.01f, 0.01f, 0.01f);
-
-	// Rotations (in order: X then Y, matching glRotatef calls)
-	model *= XMMatrixRotationX(XMConvertToRadians(45.0f));   // Tilt down
-	//model *= XMMatrixRotationY(XMConvertToRadians(-22.5f));  // Rotate left
-
-	// Flip Z axis for SC4's coordinate system
-	model *= XMMatrixScaling(1.0f, 1.0f, -1.0f);
-
-	// Orthographic projection with large depth range
-	XMMATRIX proj = XMMatrixOrthographicLH(maxSize, maxSize, -40000.0f, 40000.0f);
-
-	return model * proj;
+	return viewProj;
 }
 
 bool Renderer::ApplyMaterial(const GPUMaterial& material) {
@@ -547,7 +563,8 @@ bool Renderer::RenderFrame(int frameIdx) {
 	HRESULT hr = m_context->Map(m_constantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped);
 	if (SUCCEEDED(hr)) {
 		ShaderConstants* constants = static_cast<ShaderConstants*>(mapped.pData);
-		constants->viewProj = DirectX::XMMatrixTranspose(viewProj);
+		// No transpose needed - using column-vector multiplication in shader
+		constants->viewProj = viewProj;
 		m_context->Unmap(m_constantBuffer, 0);
 	}
 

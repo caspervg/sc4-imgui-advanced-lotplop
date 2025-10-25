@@ -1134,11 +1134,13 @@ void AdvancedLotPlopDllDirector::GenerateS3DThumbnail(ID3D11Device *device, ID3D
     LOG_INFO("Generating S3D thumbnail proof-of-concept...");
 
     // Test prop: T=0x6534284a, G=0xc977c536, I=0x1d830000
-    constexpr uint32_t S3D_TYPE = 0x6534284a;
+    constexpr uint32_t EXEMPLAR_TYPE = 0x6534284a;
     // constexpr uint32_t S3D_GROUP = 0xf38748f8;
     // constexpr uint32_t S3D_INSTANCE = 0x0445bb45;
-    constexpr uint32_t S3D_GROUP = 0x13a0bd51;
-    constexpr uint32_t S3D_INSTANCE = 0xd6136b79;
+    constexpr uint32_t EXEMPLAR_GROUP = 0x13a0bd51;
+    constexpr uint32_t EXEMPLAR_ISNTANCE = 0xd6136b79;
+	// constexpr uint32_t S3D_GROUP = 0x9dd7f9c4;
+	// constexpr uint32_t S3D_INSTANCE = 0x5f9944bd;
 
     try {
         cIGZPersistResourceManagerPtr pRM;
@@ -1147,12 +1149,12 @@ void AdvancedLotPlopDllDirector::GenerateS3DThumbnail(ID3D11Device *device, ID3D
             return;
         }
 
-        // Get S3D resource from ResourceManager
-        cGZPersistResourceKey key(S3D_TYPE, S3D_GROUP, S3D_INSTANCE);
+        // Get exemplar resource from ResourceManager
+        cGZPersistResourceKey exemplarKey(EXEMPLAR_TYPE, EXEMPLAR_GROUP, EXEMPLAR_ISNTANCE);
 
         // First get the prop exemplar
         cRZAutoRefCount<cISCPropertyHolder> propExemplar;
-        if (!pRM->GetResource(key, GZIID_cISCPropertyHolder, propExemplar.AsPPVoid(), 0, nullptr)) {
+        if (!pRM->GetResource(exemplarKey, GZIID_cISCPropertyHolder, propExemplar.AsPPVoid(), 0, nullptr)) {
             LOG_ERROR("Failed to get prop exemplar");
             return;
         }
@@ -1189,7 +1191,7 @@ void AdvancedLotPlopDllDirector::GenerateS3DThumbnail(ID3D11Device *device, ID3D
         }
 
         s3dKey.instance += 0x400; // Highest zoom level
-        LOG_DEBUG("Using zoom 4 S3D instance: 0x{:08X}", s3dKey.instance);
+        LOG_DEBUG("Using zoom 5 S3D instance: 0x{:08X}", s3dKey.instance);
 
         cIGZPersistDBRecord* pRecord = nullptr;
         if (!pRM->OpenDBRecord(s3dKey, &pRecord, false)) {
@@ -1226,7 +1228,7 @@ void AdvancedLotPlopDllDirector::GenerateS3DThumbnail(ID3D11Device *device, ID3D
         s3dRenderer = std::make_unique<S3D::Renderer>(device, context);
 
         // Load model into renderer (using ResourceManager for texture loading)
-        if (!s3dRenderer->LoadModel(model, pRM, S3D_GROUP)) {
+        if (!s3dRenderer->LoadModel(model, pRM, s3dKey.group)) {
             LOG_ERROR("Failed to load S3D model into renderer");
             s3dRenderer.reset();
             return;

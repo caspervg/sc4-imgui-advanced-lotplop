@@ -1,5 +1,6 @@
 #pragma once
 #include "S3DStructures.h"
+#include "S3DEnumMappings.h"
 #include "FSHReader.h"
 #include <d3d11.h>
 #include <SimpleMath.h>
@@ -33,7 +34,8 @@ static_assert(sizeof(ShaderConstants) == RenderConstants::SHADER_CONSTANTS_SIZE,
 
 struct MaterialConstants {
 	float alphaThreshold;
-	float padding[3]; // Align to 16 bytes
+	uint32_t alphaFunc;  // 0=NEVER, 1=LESS, 2=EQUAL, 3=LEQUAL, 4=GREATER, 5=NOTEQUAL, 6=GEQUAL, 7=ALWAYS
+	float padding[2];    // Align to 16 bytes
 };
 
 class Renderer {
@@ -84,13 +86,16 @@ private:
 
 	struct GPUMaterial {
 		ID3D11ShaderResourceView* textureSRV = nullptr;
+		ID3D11SamplerState* samplerState = nullptr;  // Per-material sampler (wrap, filter)
 		ID3D11BlendState* blendState = nullptr;
 		ID3D11DepthStencilState* depthState = nullptr;
 		float alphaThreshold = 0.5f;
+		uint32_t alphaFunc = 4; // Default: GL_GREATER
 		bool hasTexture = false;
 
 		~GPUMaterial() {
 			if (textureSRV) textureSRV->Release();
+			if (samplerState) samplerState->Release();
 			if (blendState) blendState->Release();
 			if (depthState) depthState->Release();
 		}
@@ -103,6 +108,7 @@ private:
 	// Model data
 	std::vector<std::unique_ptr<GPUVertexBuffer>> m_vertexBuffers;
 	std::vector<std::unique_ptr<GPUIndexBuffer>> m_indexBuffers;
+	std::vector<PrimitiveBlock> m_primitiveBlocks;  // Primitive blocks from S3D file
 	std::vector<std::unique_ptr<GPUMaterial>> m_materials;
 	std::vector<Frame> m_frames;
 	std::vector<AnimatedMesh> m_meshes;

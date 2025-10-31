@@ -45,7 +45,8 @@ constexpr const char* PIXEL_SHADER = R"(
 cbuffer MaterialConstants : register(b0)
 {
     float alphaThreshold;
-    float3 padding;
+    uint alphaFunc;  // 0=NEVER, 1=LESS, 2=EQUAL, 3=LEQUAL, 4=GREATER, 5=NOTEQUAL, 6=GEQUAL, 7=ALWAYS
+    float2 padding;
 };
 
 Texture2D txDiffuse : register(t0);
@@ -58,13 +59,26 @@ struct PS_INPUT
     float2 uv : TEXCOORD0;
 };
 
+// Alpha test function
+bool AlphaTest(float alpha, float threshold, uint func)
+{
+    if (func == 0) return false;                // NEVER
+    if (func == 1) return alpha < threshold;    // LESS
+    if (func == 2) return alpha == threshold;   // EQUAL
+    if (func == 3) return alpha <= threshold;   // LEQUAL
+    if (func == 4) return alpha > threshold;    // GREATER (default)
+    if (func == 5) return alpha != threshold;   // NOTEQUAL
+    if (func == 6) return alpha >= threshold;   // GEQUAL
+    return true;                                 // ALWAYS
+}
+
 float4 main(PS_INPUT input) : SV_TARGET
 {
     float4 texColor = txDiffuse.Sample(samLinear, input.uv);
     float4 finalColor = texColor * input.color;
 
-    // Alpha test (discard pixels with alpha <= threshold, matching OpenGL's glAlphaFunc(GL_GREATER, threshold))
-    if (finalColor.a <= alphaThreshold) {
+    // Alpha test with configurable comparison function
+    if (!AlphaTest(finalColor.a, alphaThreshold, alphaFunc)) {
         discard;
     }
 

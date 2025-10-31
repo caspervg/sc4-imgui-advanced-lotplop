@@ -218,6 +218,13 @@ bool Renderer::CreateMaterials(const Model& model, cIGZPersistResourceManager* p
 		gpuMat->alphaThreshold = mat.alphaThreshold;
 		gpuMat->hasTexture = (mat.flags & MAT_TEXTURE) && !mat.textures.empty();
 
+		// Store alpha test function (if MAT_ALPHA_TEST flag is set)
+		if (mat.flags & MAT_ALPHA_TEST) {
+			gpuMat->alphaFunc = EnumMappings::MapAlphaFunc(mat.alphaFunc);
+		} else {
+			gpuMat->alphaFunc = 7; // GL_ALWAYS - no alpha test
+		}
+
 		// Load texture if present
 		if (gpuMat->hasTexture && pRM) {
 			uint32_t textureID = mat.textures[0].textureID;
@@ -241,15 +248,39 @@ bool Renderer::CreateMaterials(const Model& model, cIGZPersistResourceManager* p
 			}
 		}
 
-		// Create blend state
-		// Only enable blending if we actually have a texture loaded
+		// Create sampler state based on texture properties
+		if (gpuMat->hasTexture && !mat.textures.empty()) {
+			const auto& texInfo = mat.textures[0];
+
+			D3D11_SAMPLER_DESC samplerDesc = {};
+			samplerDesc.Filter = EnumMappings::MapTextureFilter(texInfo.minFilter, texInfo.magFilter);
+			samplerDesc.AddressU = EnumMappings::MapTextureWrap(texInfo.wrapS);
+			samplerDesc.AddressV = EnumMappings::MapTextureWrap(texInfo.wrapT);
+			samplerDesc.AddressW = D3D11_TEXTURE_ADDRESS_WRAP;
+			samplerDesc.ComparisonFunc = D3D11_COMPARISON_NEVER;
+			samplerDesc.MinLOD = 0;
+			samplerDesc.MaxLOD = D3D11_FLOAT32_MAX;
+
+			HRESULT hr = m_device->CreateSamplerState(&samplerDesc, &gpuMat->samplerState);
+			if (FAILED(hr)) {
+				LOG_ERROR("Failed to create sampler state: 0x{:08X}", hr);
+				ClearModel();
+				return false;
+			}
+		} else if (gpuMat->hasTexture) {
+			// Fallback: use CommonStates LinearClamp if no texture info
+			gpuMat->samplerState = m_states->LinearClamp();
+			gpuMat->samplerState->AddRef(); // Keep reference
+		}
+
+		// Create blend state using material's blend modes
 		D3D11_BLEND_DESC blendDesc = {};
 		blendDesc.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
 
 		if ((mat.flags & MAT_BLEND) && gpuMat->textureSRV) {
 			blendDesc.RenderTarget[0].BlendEnable = TRUE;
-			blendDesc.RenderTarget[0].SrcBlend = D3D11_BLEND_SRC_ALPHA;
-			blendDesc.RenderTarget[0].DestBlend = D3D11_BLEND_INV_SRC_ALPHA;
+			blendDesc.RenderTarget[0].SrcBlend = EnumMappings::MapBlendFactor(mat.srcBlend);
+			blendDesc.RenderTarget[0].DestBlend = EnumMappings::MapBlendFactor(mat.dstBlend);
 			blendDesc.RenderTarget[0].BlendOp = D3D11_BLEND_OP_ADD;
 			blendDesc.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_ONE;
 			blendDesc.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_ZERO;
@@ -263,11 +294,11 @@ bool Renderer::CreateMaterials(const Model& model, cIGZPersistResourceManager* p
 			return false;
 		}
 
-		// Create depth stencil state
+		// Create depth stencil state using material's depth function
 		D3D11_DEPTH_STENCIL_DESC dsDesc = {};
 		dsDesc.DepthEnable = (mat.flags & MAT_DEPTH_TEST) ? TRUE : FALSE;
 		dsDesc.DepthWriteMask = (mat.flags & MAT_DEPTH_WRITE) ? D3D11_DEPTH_WRITE_MASK_ALL : D3D11_DEPTH_WRITE_MASK_ZERO;
-		dsDesc.DepthFunc = D3D11_COMPARISON_LESS_EQUAL;
+		dsDesc.DepthFunc = EnumMappings::MapComparisonFunc(mat.depthFunc);
 
 		hr = m_device->CreateDepthStencilState(&dsDesc, &gpuMat->depthState);
 		if (FAILED(hr)) {
@@ -297,6 +328,9 @@ bool Renderer::LoadModel(const Model& model, cIGZPersistResourceManager* pRM, ui
 	if (!CreateIndexBuffers(model)) return false;
 	if (!CreateMaterials(model, pRM, groupID)) return false;
 
+	// Copy primitive blocks
+	m_primitiveBlocks = model.primitiveBlocks;
+
 	// Copy animation data
 	m_frames.clear();
 	m_meshes = model.animation.animatedMeshes;
@@ -310,7 +344,8 @@ bool Renderer::LoadModel(const Model& model, cIGZPersistResourceManager* pRM, ui
 	m_bbMax = model.bbMax;
 	m_modelLoaded = true;
 
-	LOG_INFO("S3D model loaded: {} meshes, {} frames", m_meshes.size(), m_frames.size());
+	LOG_INFO("S3D model loaded: {} meshes, {} frames, {} primitive blocks",
+		m_meshes.size(), m_frames.size(), m_primitiveBlocks.size());
 	return true;
 }
 
@@ -321,6 +356,9 @@ bool Renderer::LoadModelFromDBPF(const Model& model, cISC4DBSegmentPackedFile* d
 	if (!CreateIndexBuffers(model)) return false;
 	if (!CreateMaterialsFromDBPF(model, dbpf, groupID)) return false;
 
+	// Copy primitive blocks
+	m_primitiveBlocks = model.primitiveBlocks;
+
 	// Copy animation data
 	m_frames.clear();
 	m_meshes = model.animation.animatedMeshes;
@@ -334,13 +372,15 @@ bool Renderer::LoadModelFromDBPF(const Model& model, cISC4DBSegmentPackedFile* d
 	m_bbMax = model.bbMax;
 	m_modelLoaded = true;
 
-	LOG_INFO("S3D model loaded: {} meshes, {} frames", m_meshes.size(), m_frames.size());
+	LOG_INFO("S3D model loaded: {} meshes, {} frames, {} primitive blocks",
+		m_meshes.size(), m_frames.size(), m_primitiveBlocks.size());
 	return true;
 }
 
 void Renderer::ClearModel() {
 	m_vertexBuffers.clear();
 	m_indexBuffers.clear();
+	m_primitiveBlocks.clear();
 	m_materials.clear();
 	m_frames.clear();
 	m_meshes.clear();
@@ -433,20 +473,26 @@ bool Renderer::ApplyMaterial(const GPUMaterial& material) {
 	// Set depth stencil state
 	m_context->OMSetDepthStencilState(material.depthState, 0);
 
-	// Set texture
+	// Set texture and sampler
 	if (material.textureSRV) {
 		m_context->PSSetShaderResources(0, 1, &material.textureSRV);
+
+		// Use per-material sampler (wrapping, filtering)
+		if (material.samplerState) {
+			m_context->PSSetSamplers(0, 1, &material.samplerState);
+		}
 	} else {
 		ID3D11ShaderResourceView* nullSRV = nullptr;
 		m_context->PSSetShaderResources(0, 1, &nullSRV);
 	}
 
-	// Update material constant buffer with alpha threshold
+	// Update material constant buffer with alpha threshold and function
 	D3D11_MAPPED_SUBRESOURCE mapped;
 	HRESULT hr = m_context->Map(m_materialConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped);
 	if (SUCCEEDED(hr)) {
 		MaterialConstants* matConstants = static_cast<MaterialConstants*>(mapped.pData);
 		matConstants->alphaThreshold = material.alphaThreshold;
+		matConstants->alphaFunc = material.alphaFunc;
 		m_context->Unmap(m_materialConstantBuffer, 0);
 	}
 
@@ -463,14 +509,11 @@ bool Renderer::RenderFrame(int frameIdx) {
 
 	// Setup pipeline
 	m_context->IASetInputLayout(m_inputLayout);
-	m_context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 	m_context->VSSetShader(m_vertexShader, nullptr, 0);
 	m_context->PSSetShader(m_pixelShader, nullptr, 0);
 
-	// Use DirectXTK CommonStates
+	// Use DirectXTK CommonStates for rasterizer
 	m_context->RSSetState(m_states->CullNone());
-	ID3D11SamplerState* sampler = m_states->LinearClamp();
-	m_context->PSSetSamplers(0, 1, &sampler);
 
 	// Update constant buffer
 	DirectX::SimpleMath::Matrix viewProj = CalculateViewProjMatrix();
@@ -516,14 +559,49 @@ bool Renderer::RenderFrame(int frameIdx) {
 		m_context->IASetVertexBuffers(0, 1, &vb->buffer, &stride, &offset);
 		m_context->IASetIndexBuffer(ib->buffer, DXGI_FORMAT_R16_UINT, 0);
 
-		// Apply material
+		// Apply material (sets blend state, depth state, texture, sampler)
 		ApplyMaterial(*mat);
 
-		// Draw
-		m_context->DrawIndexed(ib->count, 0, 0);
+		// Draw using primitive blocks if available
+		if (frame.primBlock < m_primitiveBlocks.size() && !m_primitiveBlocks[frame.primBlock].empty()) {
+			const auto& primBlock = m_primitiveBlocks[frame.primBlock];
+
+			for (const auto& prim : primBlock) {
+				// Set primitive topology based on type
+				D3D11_PRIMITIVE_TOPOLOGY topology;
+				switch (prim.type) {
+					case 0: topology = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST; break;
+					case 1: topology = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP; break;
+					case 2:
+						// Triangle fan not supported in D3D11 - convert to triangle list
+						// For now, skip and warn
+						LOG_WARN("Triangle fan not supported (mesh {}), skipping primitive", mesh.name);
+						continue;
+					default:
+						LOG_WARN("Unknown primitive type {} in mesh {}", prim.type, mesh.name);
+						continue;
+				}
+
+				m_context->IASetPrimitiveTopology(topology);
+
+				// Draw primitive
+				m_context->DrawIndexed(prim.length, prim.first, 0);
+
+				// Count triangles (approximation for strips)
+				if (prim.type == 0) {
+					totalTriangles += prim.length / 3;
+				} else if (prim.type == 1) {
+					totalTriangles += (prim.length > 2) ? (prim.length - 2) : 0;
+				}
+			}
+		} else {
+			// Fallback: No primitive blocks, draw entire index buffer as triangle list
+			m_context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+			m_context->DrawIndexed(ib->count, 0, 0);
+			totalTriangles += ib->count / 3;
+		}
 
 		meshDrawCount++;
-		totalTriangles += ib->count / 3;
 	}
 
 	LOG_DEBUG("Rendered {} meshes, {} triangles", meshDrawCount, totalTriangles);

@@ -35,9 +35,11 @@ Renderer::~Renderer() {
 }
 
 bool Renderer::CreateShaders() {
+	LOG_DEBUG("Creating S3D shaders and pipeline resources...");
 	HRESULT hr;
 
 	// Compile vertex shader
+	LOG_DEBUG("  Compiling vertex shader (vs_4_0, {} bytes)...", strlen(Shaders::VERTEX_SHADER));
 	ID3DBlob* vsBlob = nullptr;
 	ID3DBlob* errorBlob = nullptr;
 
@@ -57,20 +59,25 @@ bool Renderer::CreateShaders() {
 
 	if (FAILED(hr)) {
 		if (errorBlob) {
-			LOG_ERROR("Vertex shader compilation failed: {}", (char*)errorBlob->GetBufferPointer());
+			LOG_ERROR("Vertex shader compilation failed (0x{:08X}): {}", hr, (char*)errorBlob->GetBufferPointer());
 			errorBlob->Release();
+		} else {
+			LOG_ERROR("Vertex shader compilation failed: 0x{:08X}", hr);
 		}
 		return false;
 	}
 
+	LOG_DEBUG("    Vertex shader compiled successfully ({} bytes bytecode)", vsBlob->GetBufferSize());
+
 	hr = m_device->CreateVertexShader(vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), nullptr, &m_vertexShader);
 	if (FAILED(hr)) {
-		LOG_ERROR("Failed to create vertex shader: 0x{:08X}", hr);
+		LOG_ERROR("Failed to create vertex shader object: 0x{:08X}", hr);
 		vsBlob->Release();
 		return false;
 	}
 
 	// Create input layout
+	LOG_DEBUG("  Creating input layout (4 elements: POSITION, COLOR, TEXCOORD0, TEXCOORD1)...");
 	D3D11_INPUT_ELEMENT_DESC layout[] = {
 		{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
 		{ "COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0 },
@@ -86,7 +93,10 @@ bool Renderer::CreateShaders() {
 		return false;
 	}
 
+	LOG_DEBUG("    Input layout created (stride=44 bytes per vertex)");
+
 	// Compile pixel shader
+	LOG_DEBUG("  Compiling pixel shader (ps_4_0, {} bytes)...", strlen(Shaders::PIXEL_SHADER));
 	ID3DBlob* psBlob = nullptr;
 	hr = D3DCompile(
 		Shaders::PIXEL_SHADER,
@@ -104,21 +114,26 @@ bool Renderer::CreateShaders() {
 
 	if (FAILED(hr)) {
 		if (errorBlob) {
-			LOG_ERROR("Pixel shader compilation failed: {}", (char*)errorBlob->GetBufferPointer());
+			LOG_ERROR("Pixel shader compilation failed (0x{:08X}): {}", hr, (char*)errorBlob->GetBufferPointer());
 			errorBlob->Release();
+		} else {
+			LOG_ERROR("Pixel shader compilation failed: 0x{:08X}", hr);
 		}
 		return false;
 	}
+
+	LOG_DEBUG("    Pixel shader compiled successfully ({} bytes bytecode)", psBlob->GetBufferSize());
 
 	hr = m_device->CreatePixelShader(psBlob->GetBufferPointer(), psBlob->GetBufferSize(), nullptr, &m_pixelShader);
 	psBlob->Release();
 
 	if (FAILED(hr)) {
-		LOG_ERROR("Failed to create pixel shader: 0x{:08X}", hr);
+		LOG_ERROR("Failed to create pixel shader object: 0x{:08X}", hr);
 		return false;
 	}
 
 	// Create VS constant buffer
+	LOG_DEBUG("  Creating VS constant buffer ({} bytes)...", sizeof(ShaderConstants));
 	D3D11_BUFFER_DESC cbDesc = {};
 	cbDesc.ByteWidth = sizeof(ShaderConstants);
 	cbDesc.Usage = D3D11_USAGE_DYNAMIC;
@@ -132,6 +147,7 @@ bool Renderer::CreateShaders() {
 	}
 
 	// Create PS constant buffer for material properties
+	LOG_DEBUG("  Creating PS constant buffer ({} bytes)...", sizeof(MaterialConstants));
 	cbDesc.ByteWidth = sizeof(MaterialConstants);
 	hr = m_device->CreateBuffer(&cbDesc, nullptr, &m_materialConstantBuffer);
 	if (FAILED(hr)) {
@@ -139,7 +155,7 @@ bool Renderer::CreateShaders() {
 		return false;
 	}
 
-	LOG_DEBUG("S3D shaders created successfully");
+	LOG_DEBUG("S3D shaders and pipeline created successfully");
 	return true;
 }
 
@@ -457,14 +473,17 @@ DirectX::SimpleMath::Matrix Renderer::CalculateViewProjMatrix() const
 	using namespace DirectX;
 	using namespace DirectX::SimpleMath;
 
-	LOG_DEBUG("CalcViewProj: bbMin=({:.3f},{:.3f},{:.3f}) bbMax=({:.3f},{:.3f},{:.3f})",
+	LOG_DEBUG("Calculating view-projection matrix for S3D rendering...");
+	LOG_DEBUG("  Model bounding box: min=({:.3f}, {:.3f}, {:.3f}), max=({:.3f}, {:.3f}, {:.3f})",
 		m_bbMin.x, m_bbMin.y, m_bbMin.z, m_bbMax.x, m_bbMax.y, m_bbMax.z);
 
-	const float ry_deg = RenderConstants::BILLBOARD_ROTATION_Y;
-	const float rx_deg = RenderConstants::BILLBOARD_ROTATION_X;
+	const float ry_deg = RenderConstants::BILLBOARD_ROTATION_Y;  // -22.5° isometric Y rotation
+	const float rx_deg = RenderConstants::BILLBOARD_ROTATION_X;  // 45° isometric X tilt
 
-	Matrix rotY_pos = Matrix::CreateRotationY(XMConvertToRadians(22.5f));   // +22.5 for bounds
-	Matrix rotX_neg = Matrix::CreateRotationX(XMConvertToRadians(-45.0f));  // -45 for bounds
+	LOG_DEBUG("  Billboard rotation: Y={:.1f}°, X={:.1f}°", ry_deg, rx_deg);
+
+	Matrix rotY_pos = Matrix::CreateRotationY(XMConvertToRadians(22.5f));   // +22.5 for bounds calculation
+	Matrix rotX_neg = Matrix::CreateRotationX(XMConvertToRadians(-45.0f));  // -45 for bounds calculation
 
 	const float minx = m_bbMin.x, miny = m_bbMin.y, minz = m_bbMin.z;
 	const float maxx = m_bbMax.x, maxy = m_bbMax.y, maxz = m_bbMax.z;
@@ -486,45 +505,52 @@ DirectX::SimpleMath::Matrix Renderer::CalculateViewProjMatrix() const
 		minY = (std::min)(minY, v.y); maxY = (std::max)(maxY, v.y);
 		maxZ = (std::max)(maxZ, v.z);
 	}
-	LOG_DEBUG("Rotated bounds: X[{:.3f},{:.3f}] Y[{:.3f},{:.3f}] maxZ={:.3f}",
+	LOG_DEBUG("  Rotated bounds: X=[{:.3f}, {:.3f}], Y=[{:.3f}, {:.3f}], maxZ={:.3f}",
 		minX, maxX, minY, maxY, maxZ);
 
 	const float padding = RenderConstants::BOUNDING_BOX_PADDING;
 	float width = (maxX - minX);
 	float height = (maxY - minY);
 	float diff = (std::max)(width, height) * padding;
-	if (diff < 1e-4f) diff = 1.0f;
+	if (diff < 1e-4f) {
+		LOG_WARN("  Model size too small ({:.6f}), clamping to 1.0", diff);
+		diff = 1.0f;
+	}
 
 	float posx = (minX + maxX) * 0.5f;
 	float posy = (minY + maxY) * 0.5f;
 	float posz = maxZ;
 
-	LOG_DEBUG("Ortho diff={:.3f} width={:.3f} height={:.3f} center=({:.3f},{:.3f},{:.3f})",
-		diff, width, height, posx, posy, posz);
+	LOG_DEBUG("  Orthographic projection: size={:.3f} (width={:.3f}, height={:.3f}, padding={:.0f}%)",
+		diff, width, height, (padding - 1.0f) * 100.0f);
+	LOG_DEBUG("  View center: ({:.3f}, {:.3f}, {:.3f})", posx, posy, posz);
 
 	// View matrix following Python S3DViewer billboard approach:
 	// 1. Scale Z by -1 (glScalef(1,1,-1))
 	// 2. Translate to center
 	// 3. Rotate X by 45°
 	// 4. Rotate Y by -22.5°
+	LOG_DEBUG("  Building view matrix (billboard: Z-flip, translate, rotateX, rotateY)...");
 	Matrix view = Matrix::Identity;
-	view *= Matrix::CreateScale(1.0f, 1.0f, -1.0f);        // Z-flip for billboard
-	view *= Matrix::CreateTranslation(-posx, -posy, -posz); // Center model
-	view *= Matrix::CreateRotationX(XMConvertToRadians(rx_deg)); // Tilt down 45°
-	view *= Matrix::CreateRotationY(XMConvertToRadians(ry_deg)); // Rotate -22.5°
+	view *= Matrix::CreateScale(1.0f, 1.0f, -1.0f);                    // Z-flip for billboard
+	view *= Matrix::CreateTranslation(-posx, -posy, -posz);            // Center model
+	view *= Matrix::CreateRotationX(XMConvertToRadians(rx_deg));       // Tilt down 45°
+	view *= Matrix::CreateRotationY(XMConvertToRadians(ry_deg));       // Rotate -22.5°
 
+	LOG_DEBUG("  Building projection matrix (orthographic LH, near={:.1f}, far={:.1f})...",
+		RenderConstants::NEAR_PLANE, RenderConstants::FAR_PLANE);
 	Matrix proj = Matrix::CreateOrthographicLH(diff, diff,
 		RenderConstants::NEAR_PLANE, RenderConstants::FAR_PLANE);
 	Matrix viewProj = view * proj;
 
-	LOG_DEBUG("ViewProj rows: "
-		"[{:.3f} {:.3f} {:.3f} {:.3f}] "
-		"[{:.3f} {:.3f} {:.3f} {:.3f}] "
-		"[{:.3f} {:.3f} {:.3f} {:.3f}] "
-		"[{:.3f} {:.3f} {:.3f} {:.3f}]",
-		viewProj._11, viewProj._12, viewProj._13, viewProj._14,
-		viewProj._21, viewProj._22, viewProj._23, viewProj._24,
-		viewProj._31, viewProj._32, viewProj._33, viewProj._34,
+	LOG_DEBUG("  ViewProj matrix computed:");
+	LOG_DEBUG("    [{:7.3f} {:7.3f} {:7.3f} {:7.3f}]",
+		viewProj._11, viewProj._12, viewProj._13, viewProj._14);
+	LOG_DEBUG("    [{:7.3f} {:7.3f} {:7.3f} {:7.3f}]",
+		viewProj._21, viewProj._22, viewProj._23, viewProj._24);
+	LOG_DEBUG("    [{:7.3f} {:7.3f} {:7.3f} {:7.3f}]",
+		viewProj._31, viewProj._32, viewProj._33, viewProj._34);
+	LOG_DEBUG("    [{:7.3f} {:7.3f} {:7.3f} {:7.3f}]",
 		viewProj._41, viewProj._42, viewProj._43, viewProj._44);
 
 	return viewProj;
@@ -714,11 +740,13 @@ bool Renderer::RenderFrame(int frameIdx) {
 }
 
 std::unique_ptr<Renderer::RenderTarget> Renderer::CreateRenderTarget(uint32_t width, uint32_t height) {
+	LOG_DEBUG("Creating render target: {}x{}", width, height);
 	auto rt = std::make_unique<RenderTarget>();
 	rt->width = width;
 	rt->height = height;
 
 	// Create texture
+	LOG_DEBUG("  Creating color texture (RGBA8, {}x{})...", width, height);
 	D3D11_TEXTURE2D_DESC texDesc = {};
 	texDesc.Width = width;
 	texDesc.Height = height;
@@ -731,11 +759,12 @@ std::unique_ptr<Renderer::RenderTarget> Renderer::CreateRenderTarget(uint32_t wi
 
 	HRESULT hr = m_device->CreateTexture2D(&texDesc, nullptr, &rt->texture);
 	if (FAILED(hr)) {
-		LOG_ERROR("Failed to create render target texture: 0x{:08X}", hr);
+		LOG_ERROR("Failed to create render target texture ({}x{}): 0x{:08X}", width, height, hr);
 		return nullptr;
 	}
 
 	// Create RTV
+	LOG_DEBUG("  Creating render target view...");
 	hr = m_device->CreateRenderTargetView(rt->texture, nullptr, &rt->rtv);
 	if (FAILED(hr)) {
 		LOG_ERROR("Failed to create render target view: 0x{:08X}", hr);
@@ -743,6 +772,7 @@ std::unique_ptr<Renderer::RenderTarget> Renderer::CreateRenderTarget(uint32_t wi
 	}
 
 	// Create depth buffer
+	LOG_DEBUG("  Creating depth buffer (D24S8, {}x{})...", width, height);
 	D3D11_TEXTURE2D_DESC depthDesc = {};
 	depthDesc.Width = width;
 	depthDesc.Height = height;
@@ -760,6 +790,7 @@ std::unique_ptr<Renderer::RenderTarget> Renderer::CreateRenderTarget(uint32_t wi
 	}
 
 	// Create DSV
+	LOG_DEBUG("  Creating depth stencil view...");
 	hr = m_device->CreateDepthStencilView(rt->depthBuffer, nullptr, &rt->dsv);
 	if (FAILED(hr)) {
 		LOG_ERROR("Failed to create depth stencil view: 0x{:08X}", hr);
@@ -767,28 +798,35 @@ std::unique_ptr<Renderer::RenderTarget> Renderer::CreateRenderTarget(uint32_t wi
 	}
 
 	// Create SRV for ImGui
+	LOG_DEBUG("  Creating shader resource view (for ImGui display)...");
 	hr = m_device->CreateShaderResourceView(rt->texture, nullptr, &rt->srv);
 	if (FAILED(hr)) {
 		LOG_ERROR("Failed to create shader resource view: 0x{:08X}", hr);
 		return nullptr;
 	}
 
+	LOG_DEBUG("Render target created successfully");
 	return rt;
 }
 
 ID3D11ShaderResourceView* Renderer::GenerateThumbnail(int size) {
+	LOG_INFO("Generating S3D thumbnail: {}x{}", size, size);
+
 	if (!m_modelLoaded) {
-		LOG_ERROR("No model loaded for thumbnail generation");
+		LOG_ERROR("GenerateThumbnail: No model loaded");
 		return nullptr;
 	}
 
 	// Create render target
+	LOG_DEBUG("  Creating offscreen render target...");
 	auto rt = CreateRenderTarget(size, size);
 	if (!rt) {
+		LOG_ERROR("  Failed to create render target for thumbnail");
 		return nullptr;
 	}
 
 	// Save current render state (comprehensive state capture)
+	LOG_DEBUG("  Saving current GPU render state...");
 	ID3D11RenderTargetView* oldRTV = nullptr;
 	ID3D11DepthStencilView* oldDSV = nullptr;
 	m_context->OMGetRenderTargets(1, &oldRTV, &oldDSV);
@@ -812,7 +850,12 @@ ID3D11ShaderResourceView* Renderer::GenerateThumbnail(int size) {
 	UINT oldStencilRef;
 	m_context->OMGetDepthStencilState(&oldDSS, &oldStencilRef);
 
+	LOG_DEBUG("    Saved: RTV={}, DSV={}, RS={}, BS={}, DSS={}",
+		oldRTV ? "yes" : "no", oldDSV ? "yes" : "no",
+		oldRS ? "yes" : "no", oldBS ? "yes" : "no", oldDSS ? "yes" : "no");
+
 	// Set our render target
+	LOG_DEBUG("  Setting thumbnail render target and viewport...");
 	m_context->OMSetRenderTargets(1, &rt->rtv, rt->dsv);
 
 	// Set viewport
@@ -825,15 +868,20 @@ ID3D11ShaderResourceView* Renderer::GenerateThumbnail(int size) {
 
 	// Clear with a visible background color for thumbnails
 	float clearColor[4] = { 0.15f, 0.15f, 0.15f, 1.0f }; // Dark gray background
+	LOG_DEBUG("  Clearing render target (background: rgb({:.0f}, {:.0f}, {:.0f}))...",
+		clearColor[0] * 255, clearColor[1] * 255, clearColor[2] * 255);
 	m_context->ClearRenderTargetView(rt->rtv, clearColor);
 	m_context->ClearDepthStencilView(rt->dsv, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
 
-	LOG_DEBUG("Rendering to {}x{} thumbnail...", size, size);
-
 	// Render frame 0
-	RenderFrame(0);
+	LOG_DEBUG("  Rendering frame 0 to thumbnail...");
+	bool renderSuccess = RenderFrame(0);
+	if (!renderSuccess) {
+		LOG_WARN("  Thumbnail rendering returned false (may have issues)");
+	}
 
 	// Restore render state (comprehensive state restoration)
+	LOG_DEBUG("  Restoring previous GPU render state...");
 	m_context->OMSetRenderTargets(1, &oldRTV, oldDSV);
 	m_context->RSSetViewports(1, &oldViewport);
 	m_context->RSSetState(oldRS);
@@ -851,7 +899,7 @@ ID3D11ShaderResourceView* Renderer::GenerateThumbnail(int size) {
 	ID3D11ShaderResourceView* srv = rt->srv;
 	rt->srv = nullptr; // Prevent destructor from releasing it
 
-	LOG_DEBUG("Generated thumbnail: {}x{}", size, size);
+	LOG_INFO("Thumbnail generated successfully: {}x{} (SRV={})", size, size, (void*)srv);
 	return srv;
 }
 

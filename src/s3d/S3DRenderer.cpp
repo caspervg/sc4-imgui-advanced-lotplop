@@ -213,21 +213,38 @@ bool Renderer::CreateMaterials(const Model& model, cIGZPersistResourceManager* p
 	m_materials.clear();
 	m_materials.reserve(model.materials.size());
 
-	for (const auto& mat : model.materials) {
+	LOG_DEBUG("Creating {} materials for S3D model", model.materials.size());
+
+	for (size_t matIdx = 0; matIdx < model.materials.size(); ++matIdx) {
+		const auto& mat = model.materials[matIdx];
 		auto gpuMat = std::make_unique<GPUMaterial>();
+
+		LOG_DEBUG("Material {}: flags=0x{:08X} (ALPHA_TEST={}, DEPTH_TEST={}, DEPTH_WRITE={}, FLAT_SHADE={}, BLEND={}, TEXTURE={})",
+			matIdx, mat.flags,
+			(mat.flags & MAT_ALPHA_TEST) ? "YES" : "NO",
+			(mat.flags & MAT_DEPTH_TEST) ? "YES" : "NO",
+			(mat.flags & MAT_DEPTH_WRITE) ? "YES" : "NO",
+			(mat.flags & MAT_FLAT_SHADE) ? "YES" : "NO",
+			(mat.flags & MAT_BLEND) ? "YES" : "NO",
+			(mat.flags & MAT_TEXTURE) ? "YES" : "NO");
+
 		gpuMat->alphaThreshold = mat.alphaThreshold;
 		gpuMat->hasTexture = (mat.flags & MAT_TEXTURE) && !mat.textures.empty();
 
 		// Store alpha test function (if MAT_ALPHA_TEST flag is set)
 		if (mat.flags & MAT_ALPHA_TEST) {
 			gpuMat->alphaFunc = EnumMappings::MapAlphaFunc(mat.alphaFunc);
+			LOG_DEBUG("  Alpha test: func=0x{:02X} → {}, threshold={:.3f}",
+				mat.alphaFunc, gpuMat->alphaFunc, mat.alphaThreshold);
 		} else {
 			gpuMat->alphaFunc = 7; // GL_ALWAYS - no alpha test
+			LOG_DEBUG("  Alpha test: disabled (ALWAYS pass)");
 		}
 
 		// Load texture if present
 		if (gpuMat->hasTexture && pRM) {
 			uint32_t textureID = mat.textures[0].textureID;
+			LOG_DEBUG("  Texture: ID=0x{:08X}, count={}", textureID, mat.textures.size());
 
 			// Try multiple common texture group IDs
 			const uint32_t textureGroups[] = {
@@ -237,13 +254,13 @@ bool Renderer::CreateMaterials(const Model& model, cIGZPersistResourceManager* p
 			for (uint32_t tryGroup : textureGroups) {
 				gpuMat->textureSRV = FSH::Reader::LoadTextureFromResourceManager(m_device, pRM, tryGroup, textureID);
 				if (gpuMat->textureSRV) {
-					LOG_DEBUG("Loaded texture 0x{:08X} from group 0x{:08X}", textureID, tryGroup);
+					LOG_DEBUG("    Loaded texture 0x{:08X} from group 0x{:08X}", textureID, tryGroup);
 					break;
 				}
 			}
 
 			if (!gpuMat->textureSRV) {
-				LOG_WARN("Failed to load texture 0x{:08X} for material (tried {} groups)", textureID, sizeof(textureGroups)/sizeof(textureGroups[0]));
+				LOG_WARN("  Failed to load texture 0x{:08X} for material {} (tried {} groups)", textureID, matIdx, sizeof(textureGroups)/sizeof(textureGroups[0]));
 				gpuMat->hasTexture = false; // Mark as no texture so we don't try to use it
 			}
 		}
@@ -251,6 +268,9 @@ bool Renderer::CreateMaterials(const Model& model, cIGZPersistResourceManager* p
 		// Create sampler state based on texture properties
 		if (gpuMat->hasTexture && !mat.textures.empty()) {
 			const auto& texInfo = mat.textures[0];
+
+			LOG_DEBUG("  Texture properties: wrapS=0x{:02X}, wrapT=0x{:02X}, minFilter=0x{:02X}, magFilter=0x{:02X}",
+				texInfo.wrapS, texInfo.wrapT, texInfo.minFilter, texInfo.magFilter);
 
 			D3D11_SAMPLER_DESC samplerDesc = {};
 			samplerDesc.Filter = EnumMappings::MapTextureFilter(texInfo.minFilter, texInfo.magFilter);
@@ -261,14 +281,18 @@ bool Renderer::CreateMaterials(const Model& model, cIGZPersistResourceManager* p
 			samplerDesc.MinLOD = 0;
 			samplerDesc.MaxLOD = D3D11_FLOAT32_MAX;
 
+			LOG_DEBUG("    Created sampler: Filter={}, AddressU={}, AddressV={}",
+				samplerDesc.Filter, samplerDesc.AddressU, samplerDesc.AddressV);
+
 			HRESULT hr = m_device->CreateSamplerState(&samplerDesc, &gpuMat->samplerState);
 			if (FAILED(hr)) {
-				LOG_ERROR("Failed to create sampler state: 0x{:08X}", hr);
+				LOG_ERROR("Failed to create sampler state for material {}: 0x{:08X}", matIdx, hr);
 				ClearModel();
 				return false;
 			}
 		} else if (gpuMat->hasTexture) {
 			// Fallback: use CommonStates LinearClamp if no texture info
+			LOG_DEBUG("  Using fallback LinearClamp sampler (no texture info)");
 			gpuMat->samplerState = m_states->LinearClamp();
 			gpuMat->samplerState->AddRef(); // Keep reference
 		}
@@ -285,11 +309,17 @@ bool Renderer::CreateMaterials(const Model& model, cIGZPersistResourceManager* p
 			blendDesc.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_ONE;
 			blendDesc.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_ZERO;
 			blendDesc.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
+
+			LOG_DEBUG("  Blend: srcBlend=0x{:02X} → {}, dstBlend=0x{:02X} → {}",
+				mat.srcBlend, blendDesc.RenderTarget[0].SrcBlend,
+				mat.dstBlend, blendDesc.RenderTarget[0].DestBlend);
+		} else {
+			LOG_DEBUG("  Blend: disabled");
 		}
 
 		HRESULT hr = m_device->CreateBlendState(&blendDesc, &gpuMat->blendState);
 		if (FAILED(hr)) {
-			LOG_ERROR("Failed to create blend state: 0x{:08X}", hr);
+			LOG_ERROR("Failed to create blend state for material {}: 0x{:08X}", matIdx, hr);
 			ClearModel(); // Clean up partial resources
 			return false;
 		}
@@ -300,9 +330,14 @@ bool Renderer::CreateMaterials(const Model& model, cIGZPersistResourceManager* p
 		dsDesc.DepthWriteMask = (mat.flags & MAT_DEPTH_WRITE) ? D3D11_DEPTH_WRITE_MASK_ALL : D3D11_DEPTH_WRITE_MASK_ZERO;
 		dsDesc.DepthFunc = EnumMappings::MapComparisonFunc(mat.depthFunc);
 
+		LOG_DEBUG("  Depth: test={}, write={}, func=0x{:02X} → {}",
+			dsDesc.DepthEnable ? "YES" : "NO",
+			(dsDesc.DepthWriteMask == D3D11_DEPTH_WRITE_MASK_ALL) ? "YES" : "NO",
+			mat.depthFunc, dsDesc.DepthFunc);
+
 		hr = m_device->CreateDepthStencilState(&dsDesc, &gpuMat->depthState);
 		if (FAILED(hr)) {
-			LOG_ERROR("Failed to create depth stencil state: 0x{:08X}", hr);
+			LOG_ERROR("Failed to create depth stencil state for material {}: 0x{:08X}", matIdx, hr);
 			ClearModel(); // Clean up partial resources
 			return false;
 		}
@@ -310,7 +345,7 @@ bool Renderer::CreateMaterials(const Model& model, cIGZPersistResourceManager* p
 		m_materials.push_back(std::move(gpuMat));
 	}
 
-	LOG_DEBUG("Created {} materials", m_materials.size());
+	LOG_DEBUG("Created {} materials successfully", m_materials.size());
 	return true;
 }
 
@@ -324,6 +359,12 @@ bool Renderer::CreateMaterialsFromDBPF(const Model& model, cISC4DBSegmentPackedF
 bool Renderer::LoadModel(const Model& model, cIGZPersistResourceManager* pRM, uint32_t groupID) {
 	ClearModel();
 
+	LOG_INFO("Loading S3D model v{}.{} from group 0x{:08X}",
+		model.majorVersion, model.minorVersion, groupID);
+	LOG_DEBUG("  Buffers: {} vertex, {} index, {} primitive blocks, {} materials",
+		model.vertexBuffers.size(), model.indexBuffers.size(),
+		model.primitiveBlocks.size(), model.materials.size());
+
 	if (!CreateVertexBuffers(model)) return false;
 	if (!CreateIndexBuffers(model)) return false;
 	if (!CreateMaterials(model, pRM, groupID)) return false;
@@ -331,12 +372,33 @@ bool Renderer::LoadModel(const Model& model, cIGZPersistResourceManager* pRM, ui
 	// Copy primitive blocks
 	m_primitiveBlocks = model.primitiveBlocks;
 
+	// Log primitive block details
+	if (!m_primitiveBlocks.empty()) {
+		LOG_DEBUG("Primitive blocks detail:");
+		for (size_t i = 0; i < m_primitiveBlocks.size(); ++i) {
+			const auto& block = m_primitiveBlocks[i];
+			LOG_DEBUG("  Block {}: {} primitives", i, block.size());
+			for (size_t j = 0; j < block.size(); ++j) {
+				const auto& prim = block[j];
+				const char* typeStr = (prim.type == 0) ? "TRIANGLELIST" :
+				                      (prim.type == 1) ? "TRIANGLESTRIP" :
+				                      (prim.type == 2) ? "TRIANGLEFAN" : "UNKNOWN";
+				LOG_DEBUG("    Prim {}: type={} ({}), first={}, length={}",
+					j, prim.type, typeStr, prim.first, prim.length);
+			}
+		}
+	} else {
+		LOG_DEBUG("No primitive blocks - will use fallback rendering");
+	}
+
 	// Copy animation data
 	m_frames.clear();
 	m_meshes = model.animation.animatedMeshes;
 
 	// Extract all frames from all meshes
 	for (const auto& mesh : m_meshes) {
+		LOG_DEBUG("Mesh '{}': {} frames, flags=0x{:02X}",
+			mesh.name, mesh.frames.size(), mesh.flags);
 		m_frames.insert(m_frames.end(), mesh.frames.begin(), mesh.frames.end());
 	}
 
@@ -344,8 +406,11 @@ bool Renderer::LoadModel(const Model& model, cIGZPersistResourceManager* pRM, ui
 	m_bbMax = model.bbMax;
 	m_modelLoaded = true;
 
-	LOG_INFO("S3D model loaded: {} meshes, {} frames, {} primitive blocks",
+	LOG_INFO("S3D model loaded successfully: {} meshes, {} frames, {} primitive blocks",
 		m_meshes.size(), m_frames.size(), m_primitiveBlocks.size());
+	LOG_DEBUG("  Bounding box: min=({:.2f}, {:.2f}, {:.2f}), max=({:.2f}, {:.2f}, {:.2f})",
+		m_bbMin.x, m_bbMin.y, m_bbMin.z, m_bbMax.x, m_bbMax.y, m_bbMax.z);
+
 	return true;
 }
 
@@ -476,6 +541,7 @@ bool Renderer::ApplyMaterial(const GPUMaterial& material) {
 	// Set texture and sampler
 	if (material.textureSRV) {
 		m_context->PSSetShaderResources(0, 1, &material.textureSRV);
+		LOG_DEBUG("      Texture: bound, sampler={}", material.samplerState ? "custom" : "none");
 
 		// Use per-material sampler (wrapping, filtering)
 		if (material.samplerState) {
@@ -484,6 +550,7 @@ bool Renderer::ApplyMaterial(const GPUMaterial& material) {
 	} else {
 		ID3D11ShaderResourceView* nullSRV = nullptr;
 		m_context->PSSetShaderResources(0, 1, &nullSRV);
+		LOG_DEBUG("      Texture: none");
 	}
 
 	// Update material constant buffer with alpha threshold and function
@@ -494,6 +561,10 @@ bool Renderer::ApplyMaterial(const GPUMaterial& material) {
 		matConstants->alphaThreshold = material.alphaThreshold;
 		matConstants->alphaFunc = material.alphaFunc;
 		m_context->Unmap(m_materialConstantBuffer, 0);
+
+		LOG_DEBUG("      Alpha: threshold={:.3f}, func={}", material.alphaThreshold, material.alphaFunc);
+	} else {
+		LOG_WARN("      Failed to map material constant buffer: 0x{:08X}", hr);
 	}
 
 	m_context->PSSetConstantBuffers(0, 1, &m_materialConstantBuffer);
@@ -503,9 +574,11 @@ bool Renderer::ApplyMaterial(const GPUMaterial& material) {
 
 bool Renderer::RenderFrame(int frameIdx) {
 	if (!m_modelLoaded || m_meshes.empty()) {
-		LOG_ERROR("No model loaded");
+		LOG_ERROR("RenderFrame: No model loaded");
 		return false;
 	}
+
+	LOG_DEBUG("RenderFrame: Rendering frame {} of {} meshes", frameIdx, m_meshes.size());
 
 	// Setup pipeline
 	m_context->IASetInputLayout(m_inputLayout);
@@ -525,6 +598,9 @@ bool Renderer::RenderFrame(int frameIdx) {
 		// No transpose needed - using column-vector multiplication in shader
 		constants->viewProj = viewProj;
 		m_context->Unmap(m_constantBuffer, 0);
+	} else {
+		LOG_ERROR("Failed to map VS constant buffer: 0x{:08X}", hr);
+		return false;
 	}
 
 	m_context->VSSetConstantBuffers(0, 1, &m_constantBuffer);
@@ -532,20 +608,29 @@ bool Renderer::RenderFrame(int frameIdx) {
 	// Render all meshes at specified frame
 	int meshDrawCount = 0;
 	int totalTriangles = 0;
+	int totalDrawCalls = 0;
 
-	for (const auto& mesh : m_meshes) {
+	for (size_t meshIdx = 0; meshIdx < m_meshes.size(); ++meshIdx) {
+		const auto& mesh = m_meshes[meshIdx];
+
 		if (frameIdx >= static_cast<int>(mesh.frames.size())) {
-			LOG_WARN("Frame {} out of range for mesh {}", frameIdx, mesh.name);
+			LOG_WARN("  Mesh {}: Frame {} out of range (has {} frames)", mesh.name, frameIdx, mesh.frames.size());
 			continue;
 		}
 
 		const auto& frame = mesh.frames[frameIdx];
 
+		LOG_DEBUG("  Mesh {} '{}': vert={}, index={}, prim={}, mat={}",
+			meshIdx, mesh.name, frame.vertBlock, frame.indexBlock, frame.primBlock, frame.matsBlock);
+
 		// Validate indices
 		if (frame.vertBlock >= m_vertexBuffers.size() ||
 		    frame.indexBlock >= m_indexBuffers.size() ||
 		    frame.matsBlock >= m_materials.size()) {
-			LOG_WARN("Invalid frame references in mesh {}", mesh.name);
+			LOG_ERROR("    Invalid frame references: vert={}/{}, index={}/{}, mat={}/{}",
+				frame.vertBlock, m_vertexBuffers.size(),
+				frame.indexBlock, m_indexBuffers.size(),
+				frame.matsBlock, m_materials.size());
 			continue;
 		}
 
@@ -554,38 +639,55 @@ bool Renderer::RenderFrame(int frameIdx) {
 		auto& ib = m_indexBuffers[frame.indexBlock];
 		auto& mat = m_materials[frame.matsBlock];
 
+		LOG_DEBUG("    Buffers: VB={} verts, IB={} indices",
+			vb->count, ib->count);
+
 		UINT stride = vb->stride;
 		UINT offset = 0;
 		m_context->IASetVertexBuffers(0, 1, &vb->buffer, &stride, &offset);
 		m_context->IASetIndexBuffer(ib->buffer, DXGI_FORMAT_R16_UINT, 0);
 
 		// Apply material (sets blend state, depth state, texture, sampler)
+		LOG_DEBUG("    Material {}:", frame.matsBlock);
 		ApplyMaterial(*mat);
 
 		// Draw using primitive blocks if available
 		if (frame.primBlock < m_primitiveBlocks.size() && !m_primitiveBlocks[frame.primBlock].empty()) {
 			const auto& primBlock = m_primitiveBlocks[frame.primBlock];
 
-			for (const auto& prim : primBlock) {
+			LOG_DEBUG("    Using primitive block {} ({} primitives)", frame.primBlock, primBlock.size());
+
+			for (size_t primIdx = 0; primIdx < primBlock.size(); ++primIdx) {
+				const auto& prim = primBlock[primIdx];
+
 				// Set primitive topology based on type
 				D3D11_PRIMITIVE_TOPOLOGY topology;
+				const char* topologyStr;
 				switch (prim.type) {
-					case 0: topology = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST; break;
-					case 1: topology = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP; break;
+					case 0:
+						topology = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+						topologyStr = "TRIANGLELIST";
+						break;
+					case 1:
+						topology = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP;
+						topologyStr = "TRIANGLESTRIP";
+						break;
 					case 2:
-						// Triangle fan not supported in D3D11 - convert to triangle list
-						// For now, skip and warn
-						LOG_WARN("Triangle fan not supported (mesh {}), skipping primitive", mesh.name);
+						// Triangle fan not supported in D3D11
+						LOG_WARN("      Prim {}: TRIANGLEFAN not supported, skipping", primIdx);
 						continue;
 					default:
-						LOG_WARN("Unknown primitive type {} in mesh {}", prim.type, mesh.name);
+						LOG_WARN("      Prim {}: Unknown type {}, skipping", primIdx, prim.type);
 						continue;
 				}
 
 				m_context->IASetPrimitiveTopology(topology);
 
 				// Draw primitive
+				LOG_DEBUG("      Prim {}: {} first={}, length={}",
+					primIdx, topologyStr, prim.first, prim.length);
 				m_context->DrawIndexed(prim.length, prim.first, 0);
+				totalDrawCalls++;
 
 				// Count triangles (approximation for strips)
 				if (prim.type == 0) {
@@ -596,15 +698,18 @@ bool Renderer::RenderFrame(int frameIdx) {
 			}
 		} else {
 			// Fallback: No primitive blocks, draw entire index buffer as triangle list
+			LOG_DEBUG("    Using fallback rendering (no primitive blocks)");
 			m_context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 			m_context->DrawIndexed(ib->count, 0, 0);
+			totalDrawCalls++;
 			totalTriangles += ib->count / 3;
 		}
 
 		meshDrawCount++;
 	}
 
-	LOG_DEBUG("Rendered {} meshes, {} triangles", meshDrawCount, totalTriangles);
+	LOG_DEBUG("RenderFrame complete: {} meshes, {} draw calls, {} triangles",
+		meshDrawCount, totalDrawCalls, totalTriangles);
 	return true;
 }
 

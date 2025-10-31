@@ -48,6 +48,16 @@ add_subdirectory(vendor/spdlog)
 add_subdirectory(vendor/args)
 add_subdirectory(vendor/mINI)
 
+# DirectXTK (DirectX Tool Kit 11) - disable unnecessary features
+set(BUILD_TOOLS OFF CACHE BOOL "" FORCE)
+set(BUILD_XAUDIO_WIN10 OFF CACHE BOOL "" FORCE)
+set(BUILD_XAUDIO_WIN8 OFF CACHE BOOL "" FORCE)
+set(BUILD_XAUDIO_REDIST OFF CACHE BOOL "" FORCE)
+set(BUILD_GAMEINPUT OFF CACHE BOOL "" FORCE)
+set(BUILD_WGI OFF CACHE BOOL "" FORCE)
+set(BUILD_XINPUT OFF CACHE BOOL "" FORCE)
+add_subdirectory(vendor/DirectXTK)
+
 include(FetchContent)
 set(WIL_BUILD_TESTS FALSE)
 FetchContent_Declare(WIL
@@ -91,6 +101,7 @@ include_directories(
     ${CMAKE_SOURCE_DIR}/src
     ${GZCOM_INCLUDE_DIR}
     ${SC4_DLL_BASICS_INCLUDE_DIR}
+    ${CMAKE_SOURCE_DIR}/vendor/DirectXTK/Inc
 )
 
 # Our source files
@@ -144,6 +155,7 @@ target_link_libraries(${PROJECT_NAME}
     args
     mINI
     nlohmann_json
+    DirectXTK
 )
 
 # Windows-specific libraries

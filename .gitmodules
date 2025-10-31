@@ -10,3 +10,6 @@
 [submodule "vendor/mINI"]
 	path = vendor/mINI
 	url = git@github.com:metayeti/mINI.git
+[submodule "vendor/DirectXTK"]
+	path = vendor/DirectXTK
+	url = https://github.com/microsoft/DirectXTK.git

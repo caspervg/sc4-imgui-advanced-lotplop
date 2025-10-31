@@ -30,8 +30,7 @@ bool Reader::Parse(const uint8_t* buffer, size_t bufferSize, Model& outModel) {
 	// Parse chunks in order
 	if (!ParseHEAD(ptr, end, outModel)) return false;
 	if (!ParseVERT(ptr, end, outModel)) return false;
-	if (!ParseINDX(ptr, end, ou
-		tModel)) return false;
+	if (!ParseINDX(ptr, end, outModel)) return false;
 	if (!ParsePRIM(ptr, end, outModel)) return false;
 	if (!ParseMATS(ptr, end, outModel)) return false;
 	if (!ParseANIM(ptr, end, outModel)) return false;
@@ -134,9 +133,9 @@ bool Reader::ReadVertex(const uint8_t*& ptr, const uint8_t* end,
 		if (!ReadValue(ptr, end, g)) return false;  // Green second
 		if (!ReadValue(ptr, end, r)) return false;  // Red third
 		if (!ReadValue(ptr, end, a)) return false;  // Alpha fourth
-		outVertex.color = DirectX::XMFLOAT4(r / 255.0f, g / 255.0f, b / 255.0f, a / 255.0f);
+		outVertex.color = DirectX::SimpleMath::Vector4(r / 255.0f, g / 255.0f, b / 255.0f, a / 255.0f);
 	} else {
-		outVertex.color = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+		outVertex.color = DirectX::SimpleMath::Vector4(1.0f, 1.0f, 1.0f, 1.0f);
 	}
 
 	// Read primary UV if present
@@ -144,7 +143,7 @@ bool Reader::ReadVertex(const uint8_t*& ptr, const uint8_t* end,
 		if (!ReadValue(ptr, end, outVertex.uv.x)) return false;
 		if (!ReadValue(ptr, end, outVertex.uv.y)) return false;
 	} else {
-		outVertex.uv = DirectX::XMFLOAT2(0.0f, 0.0f);
+		outVertex.uv = DirectX::SimpleMath::Vector2(0.0f, 0.0f);
 	}
 
 	// Read secondary UV if present
@@ -152,7 +151,7 @@ bool Reader::ReadVertex(const uint8_t*& ptr, const uint8_t* end,
 		if (!ReadValue(ptr, end, outVertex.uv2.x)) return false;
 		if (!ReadValue(ptr, end, outVertex.uv2.y)) return false;
 	} else {
-		outVertex.uv2 = DirectX::XMFLOAT2(0.0f, 0.0f);
+		outVertex.uv2 = DirectX::SimpleMath::Vector2(0.0f, 0.0f);
 	}
 
 	// Skip to next vertex based on stride
@@ -175,6 +174,13 @@ bool Reader::ParseVERT(const uint8_t*& ptr, const uint8_t* end, Model& model) {
 
 	uint32_t nbrBlocks;
 	if (!ReadValue(ptr, end, nbrBlocks)) return false;
+
+	// Validate block count to prevent OOM attacks
+	constexpr uint32_t MAX_VERTEX_BUFFERS = 1000;
+	if (nbrBlocks > MAX_VERTEX_BUFFERS) {
+		LOG_ERROR("S3D: Vertex buffer count too large: {} (max: {})", nbrBlocks, MAX_VERTEX_BUFFERS);
+		return false;
+	}
 
 	model.vertexBuffers.resize(nbrBlocks);
 
@@ -251,6 +257,13 @@ bool Reader::ParseINDX(const uint8_t*& ptr, const uint8_t* end, Model& model) {
 	uint32_t nbrBlocks;
 	if (!ReadValue(ptr, end, nbrBlocks)) return false;
 
+	// Validate block count to prevent OOM attacks
+	constexpr uint32_t MAX_INDEX_BUFFERS = 1000;
+	if (nbrBlocks > MAX_INDEX_BUFFERS) {
+		LOG_ERROR("S3D: Index buffer count too large: {} (max: {})", nbrBlocks, MAX_INDEX_BUFFERS);
+		return false;
+	}
+
 	model.indexBuffers.resize(nbrBlocks);
 
 	for (uint32_t i = 0; i < nbrBlocks; ++i) {
@@ -291,6 +304,13 @@ bool Reader::ParsePRIM(const uint8_t*& ptr, const uint8_t* end, Model& model) {
 	uint32_t nbrBlocks;
 	if (!ReadValue(ptr, end, nbrBlocks)) return false;
 
+	// Validate block count to prevent OOM attacks
+	constexpr uint32_t MAX_PRIMITIVE_BLOCKS = 1000;
+	if (nbrBlocks > MAX_PRIMITIVE_BLOCKS) {
+		LOG_ERROR("S3D: Primitive block count too large: {} (max: {})", nbrBlocks, MAX_PRIMITIVE_BLOCKS);
+		return false;
+	}
+
 	model.primitiveBlocks.resize(nbrBlocks);
 
 	for (uint32_t i = 0; i < nbrBlocks; ++i) {
@@ -322,6 +342,13 @@ bool Reader::ParseMATS(const uint8_t*& ptr, const uint8_t* end, Model& model) {
 
 	uint32_t nbrBlocks;
 	if (!ReadValue(ptr, end, nbrBlocks)) return false;
+
+	// Validate block count to prevent OOM attacks
+	constexpr uint32_t MAX_MATERIALS = 1000;
+	if (nbrBlocks > MAX_MATERIALS) {
+		LOG_ERROR("S3D: Material count too large: {} (max: {})", nbrBlocks, MAX_MATERIALS);
+		return false;
+	}
 
 	model.materials.resize(nbrBlocks);
 

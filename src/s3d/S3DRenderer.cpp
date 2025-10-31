@@ -24,8 +24,7 @@ Renderer::Renderer(ID3D11Device* device, ID3D11DeviceContext* context)
 Renderer::~Renderer() {
 	ClearModel();
 
-	if (m_samplerState) m_samplerState->Release();
-	if (m_rasterizerState) m_rasterizerState->Release();
+	// m_states uses unique_ptr and cleans up automatically
 	if (m_materialConstantBuffer) m_materialConstantBuffer->Release();
 	if (m_constantBuffer) m_constantBuffer->Release();
 	if (m_inputLayout) m_inputLayout->Release();
@@ -145,37 +144,9 @@ bool Renderer::CreateShaders() {
 }
 
 bool Renderer::CreateStates() {
-	HRESULT hr;
-
-	// Create sampler state
-	D3D11_SAMPLER_DESC samplerDesc = {};
-	samplerDesc.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
-	samplerDesc.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
-	samplerDesc.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
-	samplerDesc.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
-	samplerDesc.ComparisonFunc = D3D11_COMPARISON_NEVER;
-	samplerDesc.MinLOD = 0;
-	samplerDesc.MaxLOD = D3D11_FLOAT32_MAX;
-
-	hr = m_device->CreateSamplerState(&samplerDesc, &m_samplerState);
-	if (FAILED(hr)) {
-		LOG_ERROR("Failed to create sampler state: 0x{:08X}", hr);
-		return false;
-	}
-
-	// Create rasterizer state (no culling for SC4 models)
-	D3D11_RASTERIZER_DESC rastDesc = {};
-	rastDesc.FillMode = D3D11_FILL_SOLID;
-	rastDesc.CullMode = D3D11_CULL_NONE;
-	rastDesc.FrontCounterClockwise = FALSE;
-	rastDesc.DepthClipEnable = TRUE;
-
-	hr = m_device->CreateRasterizerState(&rastDesc, &m_rasterizerState);
-	if (FAILED(hr)) {
-		LOG_ERROR("Failed to create rasterizer state: 0x{:08X}", hr);
-		return false;
-	}
-
+	// Use DirectXTK CommonStates - replaces 26 lines of manual state creation!
+	m_states = std::make_unique<DirectX::CommonStates>(m_device);
+	LOG_DEBUG("S3D states created using DirectXTK CommonStates");
 	return true;
 }
 
@@ -288,6 +259,7 @@ bool Renderer::CreateMaterials(const Model& model, cIGZPersistResourceManager* p
 		HRESULT hr = m_device->CreateBlendState(&blendDesc, &gpuMat->blendState);
 		if (FAILED(hr)) {
 			LOG_ERROR("Failed to create blend state: 0x{:08X}", hr);
+			ClearModel(); // Clean up partial resources
 			return false;
 		}
 
@@ -300,6 +272,7 @@ bool Renderer::CreateMaterials(const Model& model, cIGZPersistResourceManager* p
 		hr = m_device->CreateDepthStencilState(&dsDesc, &gpuMat->depthState);
 		if (FAILED(hr)) {
 			LOG_ERROR("Failed to create depth stencil state: 0x{:08X}", hr);
+			ClearModel(); // Clean up partial resources
 			return false;
 		}
 
@@ -311,69 +284,10 @@ bool Renderer::CreateMaterials(const Model& model, cIGZPersistResourceManager* p
 }
 
 bool Renderer::CreateMaterialsFromDBPF(const Model& model, cISC4DBSegmentPackedFile* dbpf, uint32_t groupID) {
-	m_materials.clear();
-	m_materials.reserve(model.materials.size());
+	// Deprecated: Use LoadModel() with ResourceManager instead
+	LOG_WARN("CreateMaterialsFromDBPF is deprecated, use LoadModel with ResourceManager instead");
+	(void)model; (void)dbpf; (void)groupID;
 	return false;
-	//
-	// for (const auto& mat : model.materials) {
-	// 	auto gpuMat = std::make_unique<GPUMaterial>();
-	// 	gpuMat->alphaThreshold = mat.alphaThreshold;
-	// 	gpuMat->hasTexture = (mat.flags & MAT_TEXTURE) && !mat.textures.empty();
-	//
-	// 	// Load texture if present
-	// 	if (gpuMat->hasTexture && dbpf) {
-	// 		uint32_t textureID = mat.textures[0].textureID;
-	//
-	// 		// Try with model's group ID first, then fallback to special group
-	// 		gpuMat->textureSRV = FSH::Reader::LoadTextureFromDBPF(m_device, dbpf, groupID, textureID);
-	//
-	// 		if (!gpuMat->textureSRV && groupID != 0x1ABE787D) {
-	// 			// Try special prop texture group
-	// 			gpuMat->textureSRV = FSH::Reader::LoadTextureFromDBPF(m_device, dbpf, 0x1ABE787D, textureID);
-	// 		}
-	//
-	// 		if (!gpuMat->textureSRV) {
-	// 			LOG_WARN("Failed to load texture 0x{:08X} for material", textureID);
-	// 		}
-	// 	}
-	//
-	// 	// Create blend state
-	// 	D3D11_BLEND_DESC blendDesc = {};
-	// 	blendDesc.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
-	//
-	// 	if (mat.flags & MAT_BLEND) {
-	// 		blendDesc.RenderTarget[0].BlendEnable = TRUE;
-	// 		blendDesc.RenderTarget[0].SrcBlend = D3D11_BLEND_SRC_ALPHA;
-	// 		blendDesc.RenderTarget[0].DestBlend = D3D11_BLEND_INV_SRC_ALPHA;
-	// 		blendDesc.RenderTarget[0].BlendOp = D3D11_BLEND_OP_ADD;
-	// 		blendDesc.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_ONE;
-	// 		blendDesc.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_ZERO;
-	// 		blendDesc.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
-	// 	}
-	//
-	// 	HRESULT hr = m_device->CreateBlendState(&blendDesc, &gpuMat->blendState);
-	// 	if (FAILED(hr)) {
-	// 		LOG_ERROR("Failed to create blend state: 0x{:08X}", hr);
-	// 		return false;
-	// 	}
-	//
-	// 	// Create depth stencil state
-	// 	D3D11_DEPTH_STENCIL_DESC dsDesc = {};
-	// 	dsDesc.DepthEnable = (mat.flags & MAT_DEPTH_TEST) ? TRUE : FALSE;
-	// 	dsDesc.DepthWriteMask = (mat.flags & MAT_DEPTH_WRITE) ? D3D11_DEPTH_WRITE_MASK_ALL : D3D11_DEPTH_WRITE_MASK_ZERO;
-	// 	dsDesc.DepthFunc = D3D11_COMPARISON_LESS_EQUAL;
-	//
-	// 	hr = m_device->CreateDepthStencilState(&dsDesc, &gpuMat->depthState);
-	// 	if (FAILED(hr)) {
-	// 		LOG_ERROR("Failed to create depth stencil state: 0x{:08X}", hr);
-	// 		return false;
-	// 	}
-	//
-	// 	m_materials.push_back(std::move(gpuMat));
-	// }
-	//
-	// LOG_DEBUG("Created {} materials (from DBPF)", m_materials.size());
-	// return true;
 }
 
 bool Renderer::LoadModel(const Model& model, cIGZPersistResourceManager* pRM, uint32_t groupID) {
@@ -433,44 +347,44 @@ void Renderer::ClearModel() {
 	m_modelLoaded = false;
 }
 
-DirectX::XMMATRIX Renderer::CalculateViewProjMatrix() const
+DirectX::SimpleMath::Matrix Renderer::CalculateViewProjMatrix() const
 {
 	using namespace DirectX;
+	using namespace DirectX::SimpleMath;
 
 	LOG_DEBUG("CalcViewProj: bbMin=({:.3f},{:.3f},{:.3f}) bbMax=({:.3f},{:.3f},{:.3f})",
 		m_bbMin.x, m_bbMin.y, m_bbMin.z, m_bbMax.x, m_bbMax.y, m_bbMax.z);
 
-	const float ry_deg = -22.5f; // rotate slightly left
-	const float rx_deg = 45.0f;  // tilt down
+	const float ry_deg = RenderConstants::BILLBOARD_ROTATION_Y;
+	const float rx_deg = RenderConstants::BILLBOARD_ROTATION_X;
 
-	XMMATRIX rotY_pos = XMMatrixRotationY(XMConvertToRadians(22.5f));   // +22.5 for bounds
-	XMMATRIX rotX_neg = XMMatrixRotationX(XMConvertToRadians(-45.0f));  // -45 for bounds
+	Matrix rotY_pos = Matrix::CreateRotationY(XMConvertToRadians(22.5f));   // +22.5 for bounds
+	Matrix rotX_neg = Matrix::CreateRotationX(XMConvertToRadians(-45.0f));  // -45 for bounds
 
 	const float minx = m_bbMin.x, miny = m_bbMin.y, minz = m_bbMin.z;
 	const float maxx = m_bbMax.x, maxy = m_bbMax.y, maxz = m_bbMax.z;
 
-	XMVECTOR corners[8] = {
-		XMVectorSet(minx, miny, minz, 1.0f), XMVectorSet(maxx, miny, minz, 1.0f),
-		XMVectorSet(minx, maxy, minz, 1.0f), XMVectorSet(maxx, maxy, minz, 1.0f),
-		XMVectorSet(minx, miny, maxz, 1.0f), XMVectorSet(maxx, miny, maxz, 1.0f),
-		XMVectorSet(minx, maxy, maxz, 1.0f), XMVectorSet(maxx, maxy, maxz, 1.0f)
+	Vector3 corners[8] = {
+		Vector3(minx, miny, minz), Vector3(maxx, miny, minz),
+		Vector3(minx, maxy, minz), Vector3(maxx, maxy, minz),
+		Vector3(minx, miny, maxz), Vector3(maxx, miny, maxz),
+		Vector3(minx, maxy, maxz), Vector3(maxx, maxy, maxz)
 	};
 
 	float minX = FLT_MAX, minY = FLT_MAX;
 	float maxX = -FLT_MAX, maxY = -FLT_MAX;
 	float maxZ = -FLT_MAX;
 	for (int i = 0; i < 8; ++i) {
-		XMVECTOR v = XMVector3Transform(corners[i], rotY_pos);
-		v = XMVector3Transform(v, rotX_neg);
-		XMFLOAT3 vf; XMStoreFloat3(&vf, v);
-		minX = (std::min)(minX, vf.x); maxX = (std::max)(maxX, vf.x);
-		minY = (std::min)(minY, vf.y); maxY = (std::max)(maxY, vf.y);
-		maxZ = (std::max)(maxZ, vf.z);
+		Vector3 v = Vector3::Transform(corners[i], rotY_pos);
+		v = Vector3::Transform(v, rotX_neg);
+		minX = (std::min)(minX, v.x); maxX = (std::max)(maxX, v.x);
+		minY = (std::min)(minY, v.y); maxY = (std::max)(maxY, v.y);
+		maxZ = (std::max)(maxZ, v.z);
 	}
 	LOG_DEBUG("Rotated bounds: X[{:.3f},{:.3f}] Y[{:.3f},{:.3f}] maxZ={:.3f}",
 		minX, maxX, minY, maxY, maxZ);
 
-	const float padding = 1.10f; // 10%
+	const float padding = RenderConstants::BOUNDING_BOX_PADDING;
 	float width = (maxX - minX);
 	float height = (maxY - minY);
 	float diff = (std::max)(width, height) * padding;
@@ -488,26 +402,25 @@ DirectX::XMMATRIX Renderer::CalculateViewProjMatrix() const
 	// 2. Translate to center
 	// 3. Rotate X by 45°
 	// 4. Rotate Y by -22.5°
-	XMMATRIX view = XMMatrixIdentity();
-	view *= XMMatrixScaling(1.0f, 1.0f, -1.0f);        // Z-flip for billboard
-	view *= XMMatrixTranslation(-posx, -posy, -posz);   // Center model
-	view *= XMMatrixRotationX(XMConvertToRadians(rx_deg)); // Tilt down 45°
-	view *= XMMatrixRotationY(XMConvertToRadians(ry_deg)); // Rotate -22.5°
+	Matrix view = Matrix::Identity;
+	view *= Matrix::CreateScale(1.0f, 1.0f, -1.0f);        // Z-flip for billboard
+	view *= Matrix::CreateTranslation(-posx, -posy, -posz); // Center model
+	view *= Matrix::CreateRotationX(XMConvertToRadians(rx_deg)); // Tilt down 45°
+	view *= Matrix::CreateRotationY(XMConvertToRadians(ry_deg)); // Rotate -22.5°
 
-	XMMATRIX proj = XMMatrixOrthographicLH(diff, diff, -40000.0f, 40000.0f);
-	XMMATRIX viewProj = view * proj;
+	Matrix proj = Matrix::CreateOrthographicLH(diff, diff,
+		RenderConstants::NEAR_PLANE, RenderConstants::FAR_PLANE);
+	Matrix viewProj = view * proj;
 
-	XMFLOAT4X4 vp;
-	XMStoreFloat4x4(&vp, viewProj);
 	LOG_DEBUG("ViewProj rows: "
 		"[{:.3f} {:.3f} {:.3f} {:.3f}] "
 		"[{:.3f} {:.3f} {:.3f} {:.3f}] "
 		"[{:.3f} {:.3f} {:.3f} {:.3f}] "
 		"[{:.3f} {:.3f} {:.3f} {:.3f}]",
-		vp._11, vp._12, vp._13, vp._14,
-		vp._21, vp._22, vp._23, vp._24,
-		vp._31, vp._32, vp._33, vp._34,
-		vp._41, vp._42, vp._43, vp._44);
+		viewProj._11, viewProj._12, viewProj._13, viewProj._14,
+		viewProj._21, viewProj._22, viewProj._23, viewProj._24,
+		viewProj._31, viewProj._32, viewProj._33, viewProj._34,
+		viewProj._41, viewProj._42, viewProj._43, viewProj._44);
 
 	return viewProj;
 }
@@ -553,11 +466,14 @@ bool Renderer::RenderFrame(int frameIdx) {
 	m_context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 	m_context->VSSetShader(m_vertexShader, nullptr, 0);
 	m_context->PSSetShader(m_pixelShader, nullptr, 0);
-	m_context->RSSetState(m_rasterizerState);
-	m_context->PSSetSamplers(0, 1, &m_samplerState);
+
+	// Use DirectXTK CommonStates
+	m_context->RSSetState(m_states->CullNone());
+	ID3D11SamplerState* sampler = m_states->LinearClamp();
+	m_context->PSSetSamplers(0, 1, &sampler);
 
 	// Update constant buffer
-	DirectX::XMMATRIX viewProj = CalculateViewProjMatrix();
+	DirectX::SimpleMath::Matrix viewProj = CalculateViewProjMatrix();
 
 	D3D11_MAPPED_SUBRESOURCE mapped;
 	HRESULT hr = m_context->Map(m_constantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped);
@@ -689,14 +605,29 @@ ID3D11ShaderResourceView* Renderer::GenerateThumbnail(int size) {
 		return nullptr;
 	}
 
-	// Save current render state
+	// Save current render state (comprehensive state capture)
 	ID3D11RenderTargetView* oldRTV = nullptr;
 	ID3D11DepthStencilView* oldDSV = nullptr;
 	m_context->OMGetRenderTargets(1, &oldRTV, &oldDSV);
 
-	D3D11_VIEWPORT oldViewport;
+	D3D11_VIEWPORT oldViewport = {};
 	UINT numViewports = 1;
 	m_context->RSGetViewports(&numViewports, &oldViewport);
+
+	// Save rasterizer state (for ImGui)
+	ID3D11RasterizerState* oldRS = nullptr;
+	m_context->RSGetState(&oldRS);
+
+	// Save blend state (for ImGui)
+	ID3D11BlendState* oldBS = nullptr;
+	FLOAT oldBlendFactor[4];
+	UINT oldSampleMask;
+	m_context->OMGetBlendState(&oldBS, oldBlendFactor, &oldSampleMask);
+
+	// Save depth stencil state (for ImGui)
+	ID3D11DepthStencilState* oldDSS = nullptr;
+	UINT oldStencilRef;
+	m_context->OMGetDepthStencilState(&oldDSS, &oldStencilRef);
 
 	// Set our render target
 	m_context->OMSetRenderTargets(1, &rt->rtv, rt->dsv);
@@ -719,12 +650,19 @@ ID3D11ShaderResourceView* Renderer::GenerateThumbnail(int size) {
 	// Render frame 0
 	RenderFrame(0);
 
-	// Restore render state
+	// Restore render state (comprehensive state restoration)
 	m_context->OMSetRenderTargets(1, &oldRTV, oldDSV);
 	m_context->RSSetViewports(1, &oldViewport);
+	m_context->RSSetState(oldRS);
+	m_context->OMSetBlendState(oldBS, oldBlendFactor, oldSampleMask);
+	m_context->OMSetDepthStencilState(oldDSS, oldStencilRef);
 
+	// Release saved state objects
 	if (oldRTV) oldRTV->Release();
 	if (oldDSV) oldDSV->Release();
+	if (oldRS) oldRS->Release();
+	if (oldBS) oldBS->Release();
+	if (oldDSS) oldDSS->Release();
 
 	// Return SRV (caller takes ownership)
 	ID3D11ShaderResourceView* srv = rt->srv;

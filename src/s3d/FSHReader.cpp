@@ -167,8 +167,35 @@ void Reader::ARGB1555ToRGBA8(uint16_t color, uint8_t* rgba) {
 }
 
 bool Reader::ConvertToRGBA8(const Bitmap& bitmap, std::vector<uint8_t>& outRGBA) {
-	size_t pixelCount = bitmap.width * bitmap.height;
-	outRGBA.resize(pixelCount * 4);
+	// CRITICAL: Validate against integer overflow
+	if (bitmap.width == 0 || bitmap.height == 0) {
+		LOG_ERROR("FSH: Invalid bitmap dimensions: {}x{}", bitmap.width, bitmap.height);
+		return false;
+	}
+
+	if (bitmap.width > 65536 || bitmap.height > 65536) {
+		LOG_ERROR("FSH: Bitmap dimensions too large: {}x{}", bitmap.width, bitmap.height);
+		return false;
+	}
+
+	size_t pixelCount = static_cast<size_t>(bitmap.width) * static_cast<size_t>(bitmap.height);
+	size_t expectedInputSize = pixelCount * bitmap.GetBytesPerPixel();
+
+	// CRITICAL: Validate buffer size before reading
+	if (bitmap.data.size() < expectedInputSize) {
+		LOG_ERROR("FSH: Data buffer too small: expected {} bytes, got {} ({}x{}, format=0x{:02X})",
+		          expectedInputSize, bitmap.data.size(), bitmap.width, bitmap.height, bitmap.code);
+		return false;
+	}
+
+	// Check for output overflow
+	size_t outputSize = pixelCount * 4;
+	if (outputSize / 4 != pixelCount) { // Check for overflow in multiplication
+		LOG_ERROR("FSH: Output size calculation overflow");
+		return false;
+	}
+
+	outRGBA.resize(outputSize);
 
 	switch (bitmap.code) {
 		case CODE_32BIT: {
@@ -209,33 +236,45 @@ bool Reader::ConvertToRGBA8(const Bitmap& bitmap, std::vector<uint8_t>& outRGBA)
 		}
 
 		case CODE_16BIT_4444: {
-			const uint16_t* src = reinterpret_cast<const uint16_t*>(bitmap.data.data());
+			// Use memcpy for alignment safety instead of reinterpret_cast
+			const uint8_t* src = bitmap.data.data();
 			uint8_t* dst = outRGBA.data();
 
 			for (size_t i = 0; i < pixelCount; ++i) {
-				ARGB4444ToRGBA8(*src++, dst);
+				uint16_t pixel;
+				std::memcpy(&pixel, src, sizeof(uint16_t));
+				src += sizeof(uint16_t);
+				ARGB4444ToRGBA8(pixel, dst);
 				dst += 4;
 			}
 			return true;
 		}
 
 		case CODE_16BIT_0565: {
-			const uint16_t* src = reinterpret_cast<const uint16_t*>(bitmap.data.data());
+			// Use memcpy for alignment safety
+			const uint8_t* src = bitmap.data.data();
 			uint8_t* dst = outRGBA.data();
 
 			for (size_t i = 0; i < pixelCount; ++i) {
-				RGB565ToRGBA8(*src++, dst);
+				uint16_t pixel;
+				std::memcpy(&pixel, src, sizeof(uint16_t));
+				src += sizeof(uint16_t);
+				RGB565ToRGBA8(pixel, dst);
 				dst += 4;
 			}
 			return true;
 		}
 
 		case CODE_16BIT_1555: {
-			const uint16_t* src = reinterpret_cast<const uint16_t*>(bitmap.data.data());
+			// Use memcpy for alignment safety
+			const uint8_t* src = bitmap.data.data();
 			uint8_t* dst = outRGBA.data();
 
 			for (size_t i = 0; i < pixelCount; ++i) {
-				ARGB1555ToRGBA8(*src++, dst);
+				uint16_t pixel;
+				std::memcpy(&pixel, src, sizeof(uint16_t));
+				src += sizeof(uint16_t);
+				ARGB1555ToRGBA8(pixel, dst);
 				dst += 4;
 			}
 			return true;
@@ -370,47 +409,9 @@ ID3D11ShaderResourceView* Reader::LoadTextureFromDBPF(
 	uint32_t groupID,
 	uint32_t instanceID)
 {
-	LOG_INFO("LoadTextureFromDBPF is deprecated, use LoadTextureFromResourceManager instead");
+	LOG_WARN("LoadTextureFromDBPF is deprecated, use LoadTextureFromResourceManager instead");
+	(void)device; (void)dbpf; (void)groupID; (void)instanceID; // Suppress unused warnings
 	return nullptr;
-	// if (!device || !dbpf) {
-	// 	LOG_ERROR("Invalid device or DBPF");
-	// 	return nullptr;
-	// }
-	//
-	// // FSH type ID
-	// constexpr uint32_t FSH_TYPE_ID = 0x7AB50E44;
-	//
-	// // Find FSH entry in DBPF
-	// cISC4DBSegment* segment = dbpf->FindSegment(FSH_TYPE_ID, groupID, instanceID);
-	// if (!segment) {
-	// 	LOG_WARN("FSH texture not found: type=0x{:08X}, group=0x{:08X}, instance=0x{:08X}",
-	// 	         FSH_TYPE_ID, groupID, instanceID);
-	// 	return nullptr;
-	// }
-	//
-	// // Get data size
-	// uint32_t dataSize = segment->GetSize();
-	// if (dataSize == 0) {
-	// 	LOG_ERROR("FSH segment has zero size");
-	// 	return nullptr;
-	// }
-	//
-	// // Read data
-	// std::vector<uint8_t> fshData(dataSize);
-	// if (!segment->GetData(fshData.data(), dataSize)) {
-	// 	LOG_ERROR("Failed to read FSH data from DBPF");
-	// 	return nullptr;
-	// }
-	//
-	// // Parse FSH
-	// File fshFile;
-	// if (!Parse(fshData.data(), dataSize, fshFile)) {
-	// 	LOG_ERROR("Failed to parse FSH file");
-	// 	return nullptr;
-	// }
-	//
-	// // Create texture
-	// return CreateTexture(device, fshFile, false);
 }
 
 ID3D11ShaderResourceView* Reader::LoadTextureFromResourceManager(

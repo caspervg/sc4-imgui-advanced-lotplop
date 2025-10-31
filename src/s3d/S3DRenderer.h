@@ -2,7 +2,8 @@
 #include "S3DStructures.h"
 #include "FSHReader.h"
 #include <d3d11.h>
-#include <DirectXMath.h>
+#include <SimpleMath.h>
+#include <CommonStates.h>
 #include <unordered_map>
 #include <memory>
 
@@ -12,11 +13,23 @@ class cIGZPersistResourceManager;
 
 namespace S3D {
 
+// Rendering constants
+namespace RenderConstants {
+	constexpr float BILLBOARD_ROTATION_Y = -22.5f;  // Isometric Y rotation (degrees)
+	constexpr float BILLBOARD_ROTATION_X = 45.0f;   // Isometric X rotation (degrees)
+	constexpr float BOUNDING_BOX_PADDING = 1.10f;   // 10% padding around model
+	constexpr float NEAR_PLANE = -40000.0f;         // Near clip plane for ortho projection
+	constexpr float FAR_PLANE = 40000.0f;           // Far clip plane for ortho projection
+	constexpr size_t SHADER_CONSTANTS_SIZE = 256;   // Constant buffer size in bytes
+}
+
 // Shader constant buffers
 struct ShaderConstants {
-	DirectX::XMMATRIX viewProj;
-	DirectX::XMFLOAT4 padding[12]; // Pad to 256 bytes for alignment
+	DirectX::SimpleMath::Matrix viewProj;
+	DirectX::SimpleMath::Vector4 padding[12]; // Pad to 256 bytes for alignment
 };
+static_assert(sizeof(ShaderConstants) == RenderConstants::SHADER_CONSTANTS_SIZE,
+              "ShaderConstants must be 256 bytes");
 
 struct MaterialConstants {
 	float alphaThreshold;
@@ -94,7 +107,7 @@ private:
 	std::vector<Frame> m_frames;
 	std::vector<AnimatedMesh> m_meshes;
 
-	DirectX::XMFLOAT3 m_bbMin, m_bbMax;
+	DirectX::SimpleMath::Vector3 m_bbMin, m_bbMax;
 	bool m_modelLoaded = false;
 
 	// Shaders
@@ -104,9 +117,8 @@ private:
 	ID3D11Buffer* m_constantBuffer = nullptr;  // VS constant buffer
 	ID3D11Buffer* m_materialConstantBuffer = nullptr;  // PS constant buffer for material properties
 
-	// Default states
-	ID3D11SamplerState* m_samplerState = nullptr;
-	ID3D11RasterizerState* m_rasterizerState = nullptr;
+	// DirectXTK Common States (replaces manual state creation)
+	std::unique_ptr<DirectX::CommonStates> m_states;
 
 	// Initialization
 	bool CreateShaders();
@@ -119,7 +131,7 @@ private:
 	bool CreateMaterialsFromDBPF(const Model& model, cISC4DBSegmentPackedFile* dbpf, uint32_t groupID);
 
 	// Rendering helpers
-	DirectX::XMMATRIX CalculateViewProjMatrix() const;
+	DirectX::SimpleMath::Matrix CalculateViewProjMatrix() const;
 	bool ApplyMaterial(const GPUMaterial& material);
 
 	// Offscreen rendering

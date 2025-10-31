@@ -2,7 +2,7 @@
 #include <cstdint>
 #include <vector>
 #include <string>
-#include <DirectXMath.h>
+#include <SimpleMath.h>
 
 // S3D File Format Structures
 // Based on: https://wiki.sc4devotion.com/index.php?title=S3D
@@ -11,10 +11,10 @@ namespace S3D {
 
 // Vertex format - simplified to most common layout
 struct Vertex {
-	DirectX::XMFLOAT3 position;
-	DirectX::XMFLOAT4 color;      // RGBA, default to white if not present
-	DirectX::XMFLOAT2 uv;         // Primary texture coordinates
-	DirectX::XMFLOAT2 uv2;        // Secondary texture coordinates (if present)
+	DirectX::SimpleMath::Vector3 position;
+	DirectX::SimpleMath::Vector4 color;      // RGBA, default to white if not present
+	DirectX::SimpleMath::Vector2 uv;         // Primary texture coordinates
+	DirectX::SimpleMath::Vector2 uv2;        // Secondary texture coordinates (if present)
 };
 
 // Vertex buffer block
@@ -24,8 +24,8 @@ struct VertexBuffer {
 	uint32_t format;
 
 	// Bounding box computed from vertices
-	DirectX::XMFLOAT3 bbMin;
-	DirectX::XMFLOAT3 bbMax;
+	DirectX::SimpleMath::Vector3 bbMin;
+	DirectX::SimpleMath::Vector3 bbMax;
 };
 
 // Index buffer block
@@ -119,8 +119,8 @@ struct Model {
 	Animation animation;
 
 	// Overall bounding box
-	DirectX::XMFLOAT3 bbMin;
-	DirectX::XMFLOAT3 bbMax;
+	DirectX::SimpleMath::Vector3 bbMin;
+	DirectX::SimpleMath::Vector3 bbMax;
 
 	Model() : majorVersion(0), minorVersion(0),
 	          bbMin(0, 0, 0), bbMax(0, 0, 0) {}

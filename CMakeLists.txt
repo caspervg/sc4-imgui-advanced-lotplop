@@ -48,6 +48,21 @@ add_subdirectory(vendor/spdlog)
 add_subdirectory(vendor/mINI)
 
 # ImGui library (vendor/imgui has no CMakeLists)
+# DirectXTK (DirectX Tool Kit 11) - disable unnecessary features
+set(BUILD_TOOLS OFF CACHE BOOL "" FORCE)
+set(BUILD_XAUDIO_WIN10 OFF CACHE BOOL "" FORCE)
+set(BUILD_XAUDIO_WIN8 OFF CACHE BOOL "" FORCE)
+set(BUILD_XAUDIO_REDIST OFF CACHE BOOL "" FORCE)
+set(BUILD_GAMEINPUT OFF CACHE BOOL "" FORCE)
+set(BUILD_WGI OFF CACHE BOOL "" FORCE)
+set(BUILD_XINPUT OFF CACHE BOOL "" FORCE)
+add_subdirectory(vendor/DirectXTK)
+
+include(FetchContent)
+FetchContent_Declare(json URL https://github.com/nlohmann/json/releases/download/v3.12.0/json.tar.xz)
+FetchContent_MakeAvailable(json)
+
+# ImGui library (vendor/imgui has no CMakeLists)
 set(IMGUI_DIR ${CMAKE_SOURCE_DIR}/vendor/imgui)
 
 # Add all core ImGui .cpp and .h files
@@ -103,6 +118,7 @@ target_include_directories(gzcom2 PUBLIC
 # Include directories
 include_directories(
     ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/vendor/DirectXTK/Inc
 )
 
 # Our source files
@@ -120,6 +136,8 @@ target_link_libraries(${PROJECT_NAME}
     mINI
     imgui
     gzcom2
+    nlohmann_json
+    DirectXTK
 )
 
 target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/vendor/wil/include)

@@ -1257,6 +1257,57 @@ void AdvancedLotPlopDllDirector::RenderS3DThumbnailWindow() {
         ImGui::Text("Instance: 0x1d830000");
         ImGui::Separator();
 
+        // Debug visualization mode selector
+        if (s3dRenderer) {
+            ImGui::Text("Debug Visualization Mode:");
+
+            static int currentDebugMode = 0; // 0=Normal, 1=Wireframe, etc.
+            const char* debugModeNames[] = {
+                "Normal",
+                "Wireframe",
+                "UV Coordinates",
+                "Vertex Color Only",
+                "Material ID",
+                "Normals (N/A)",
+                "Texture Only",
+                "Alpha Test Visualization"
+            };
+
+            int previousMode = currentDebugMode;
+            if (ImGui::Combo("##DebugMode", &currentDebugMode, debugModeNames, IM_ARRAYSIZE(debugModeNames))) {
+                // Mode changed, update renderer and regenerate thumbnail
+                s3dRenderer->SetDebugMode(static_cast<S3D::DebugMode>(currentDebugMode));
+
+                // Release old thumbnail and regenerate with new debug mode
+                if (s3dThumbnailSRV) {
+                    s3dThumbnailSRV->Release();
+                    s3dThumbnailSRV = nullptr;
+                }
+
+                s3dThumbnailSRV = s3dRenderer->GenerateThumbnail(256);
+                if (s3dThumbnailSRV) {
+                    LOG_INFO("Regenerated S3D thumbnail with debug mode: {}", debugModeNames[currentDebugMode]);
+                } else {
+                    LOG_ERROR("Failed to regenerate S3D thumbnail");
+                }
+            }
+
+            // Show description for current mode
+            ImGui::TextWrapped("Description:");
+            switch (currentDebugMode) {
+                case 0: ImGui::TextWrapped("Normal rendering with textures and materials"); break;
+                case 1: ImGui::TextWrapped("Wireframe overlay to see mesh topology"); break;
+                case 2: ImGui::TextWrapped("UV coordinates as colors (Red=U, Green=V)"); break;
+                case 3: ImGui::TextWrapped("Vertex colors only (no textures)"); break;
+                case 4: ImGui::TextWrapped("Unique color per material ID"); break;
+                case 5: ImGui::TextWrapped("Normals visualization (not available - no normal data)"); break;
+                case 6: ImGui::TextWrapped("Textures without vertex color modulation"); break;
+                case 7: ImGui::TextWrapped("Alpha test visualization (Green=kept, Red=discarded)"); break;
+            }
+
+            ImGui::Separator();
+        }
+
         if (s3dThumbnailSRV) {
             ImGui::Text("Thumbnail generated:");
             ImGui::Image((ImTextureID) s3dThumbnailSRV, ImVec2(256, 256));

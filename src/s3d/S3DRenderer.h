@@ -24,6 +24,18 @@ namespace RenderConstants {
 	constexpr size_t SHADER_CONSTANTS_SIZE = 256;   // Constant buffer size in bytes
 }
 
+// Debug visualization modes
+enum class DebugMode {
+	Normal,       // Normal rendering with textures and materials
+	Wireframe,    // Wireframe overlay on top of normal rendering
+	UVs,          // Visualize UV coordinates as colors (R=U, G=V)
+	VertexColor,  // Show only vertex colors (no textures)
+	MaterialID,   // Show material IDs as unique colors
+	Normals,      // Show vertex normals as colors
+	TextureOnly,  // Show textures without vertex colors
+	AlphaTest     // Visualize alpha testing (red=discarded, green=kept)
+};
+
 // Shader constant buffers
 struct ShaderConstants {
 	DirectX::SimpleMath::Matrix viewProj;
@@ -34,8 +46,9 @@ static_assert(sizeof(ShaderConstants) == RenderConstants::SHADER_CONSTANTS_SIZE,
 
 struct MaterialConstants {
 	float alphaThreshold;
-	uint32_t alphaFunc;  // 0=NEVER, 1=LESS, 2=EQUAL, 3=LEQUAL, 4=GREATER, 5=NOTEQUAL, 6=GEQUAL, 7=ALWAYS
-	float padding[2];    // Align to 16 bytes
+	uint32_t alphaFunc;     // 0=NEVER, 1=LESS, 2=EQUAL, 3=LEQUAL, 4=GREATER, 5=NOTEQUAL, 6=GEQUAL, 7=ALWAYS
+	uint32_t debugMode;     // Debug visualization mode (matches DebugMode enum)
+	uint32_t materialIndex; // Material index for MaterialID debug mode
 };
 
 class Renderer {
@@ -63,6 +76,10 @@ public:
 
 	// Check if model is loaded
 	bool HasModel() const { return m_modelLoaded; }
+
+	// Debug visualization
+	void SetDebugMode(DebugMode mode) { m_debugMode = mode; }
+	DebugMode GetDebugMode() const { return m_debugMode; }
 
 private:
 	struct GPUVertexBuffer {
@@ -123,6 +140,10 @@ private:
 	ID3D11Buffer* m_constantBuffer = nullptr;  // VS constant buffer
 	ID3D11Buffer* m_materialConstantBuffer = nullptr;  // PS constant buffer for material properties
 
+	// Debug visualization
+	DebugMode m_debugMode = DebugMode::Normal;
+	ID3D11RasterizerState* m_wireframeRS = nullptr;  // Wireframe rasterizer state
+
 	// DirectXTK Common States (replaces manual state creation)
 	std::unique_ptr<DirectX::CommonStates> m_states;
 
@@ -138,7 +159,7 @@ private:
 
 	// Rendering helpers
 	DirectX::SimpleMath::Matrix CalculateViewProjMatrix() const;
-	bool ApplyMaterial(const GPUMaterial& material);
+	bool ApplyMaterial(const GPUMaterial& material, uint32_t materialIndex);
 
 	// Offscreen rendering
 	struct RenderTarget {

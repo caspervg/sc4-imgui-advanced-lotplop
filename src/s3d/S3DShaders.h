@@ -40,13 +40,14 @@ PS_INPUT main(VS_INPUT input)
 }
 )";
 
-// Pixel shader source
+// Pixel shader source with debug visualization support
 constexpr const char* PIXEL_SHADER = R"(
 cbuffer MaterialConstants : register(b0)
 {
     float alphaThreshold;
-    uint alphaFunc;  // 0=NEVER, 1=LESS, 2=EQUAL, 3=LEQUAL, 4=GREATER, 5=NOTEQUAL, 6=GEQUAL, 7=ALWAYS
-    float2 padding;
+    uint alphaFunc;      // 0=NEVER, 1=LESS, 2=EQUAL, 3=LEQUAL, 4=GREATER, 5=NOTEQUAL, 6=GEQUAL, 7=ALWAYS
+    uint debugMode;      // 0=Normal, 1=Wireframe, 2=UVs, 3=VertexColor, 4=MaterialID, 5=Normals, 6=TextureOnly, 7=AlphaTest
+    uint materialIndex;  // Material index for MaterialID mode
 };
 
 Texture2D txDiffuse : register(t0);
@@ -72,14 +73,57 @@ bool AlphaTest(float alpha, float threshold, uint func)
     return true;                                 // ALWAYS
 }
 
+// Generate a unique color from a material index
+float3 MaterialIDToColor(uint id)
+{
+    // Simple hash to get varied colors for different material IDs
+    float r = frac(sin(float(id) * 12.9898) * 43758.5453);
+    float g = frac(sin(float(id) * 78.233) * 43758.5453);
+    float b = frac(sin(float(id) * 45.543) * 43758.5453);
+    return float3(r, g, b);
+}
+
 float4 main(PS_INPUT input) : SV_TARGET
 {
     float4 texColor = txDiffuse.Sample(samLinear, input.uv);
     float4 finalColor = texColor * input.color;
 
-    // Alpha test with configurable comparison function
-    if (!AlphaTest(finalColor.a, alphaThreshold, alphaFunc)) {
-        discard;
+    // Debug visualization modes
+    if (debugMode == 1) {
+        // Wireframe mode - normal rendering (wireframe overlay done via rasterizer state)
+        // Just render normally
+    }
+    else if (debugMode == 2) {
+        // UVs mode - visualize UV coordinates as colors (R=U, G=V, B=0)
+        finalColor = float4(input.uv.x, input.uv.y, 0.0, 1.0);
+    }
+    else if (debugMode == 3) {
+        // VertexColor mode - show only vertex colors (no texture)
+        finalColor = input.color;
+    }
+    else if (debugMode == 4) {
+        // MaterialID mode - show unique color per material
+        finalColor = float4(MaterialIDToColor(materialIndex), 1.0);
+    }
+    else if (debugMode == 5) {
+        // Normals mode - we don't have normals in vertex data, show magenta as "not available"
+        finalColor = float4(1.0, 0.0, 1.0, 1.0);
+    }
+    else if (debugMode == 6) {
+        // TextureOnly mode - show texture without vertex color modulation
+        finalColor = texColor;
+    }
+    else if (debugMode == 7) {
+        // AlphaTest visualization - green if kept, red if would be discarded
+        bool passes = AlphaTest(finalColor.a, alphaThreshold, alphaFunc);
+        finalColor = passes ? float4(0.0, 1.0, 0.0, 1.0) : float4(1.0, 0.0, 0.0, 1.0);
+    }
+
+    // Alpha test (skip in debug modes except AlphaTest mode)
+    if (debugMode == 0 || debugMode == 1 || debugMode == 6) {
+        if (!AlphaTest(finalColor.a, alphaThreshold, alphaFunc)) {
+            discard;
+        }
     }
 
     return finalColor;

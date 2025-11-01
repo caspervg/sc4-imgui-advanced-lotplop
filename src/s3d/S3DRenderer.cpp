@@ -25,6 +25,7 @@ Renderer::~Renderer() {
 	ClearModel();
 
 	// m_states uses unique_ptr and cleans up automatically
+	if (m_wireframeRS) m_wireframeRS->Release();
 	if (m_materialConstantBuffer) m_materialConstantBuffer->Release();
 	if (m_constantBuffer) m_constantBuffer->Release();
 	if (m_inputLayout) m_inputLayout->Release();
@@ -163,6 +164,21 @@ bool Renderer::CreateStates() {
 	// Use DirectXTK CommonStates - replaces 26 lines of manual state creation!
 	m_states = std::make_unique<DirectX::CommonStates>(m_device);
 	LOG_DEBUG("S3D states created using DirectXTK CommonStates");
+
+	// Create wireframe rasterizer state for debug mode
+	D3D11_RASTERIZER_DESC wireframeDesc = {};
+	wireframeDesc.FillMode = D3D11_FILL_WIREFRAME;
+	wireframeDesc.CullMode = D3D11_CULL_NONE;
+	wireframeDesc.FrontCounterClockwise = FALSE;
+	wireframeDesc.DepthClipEnable = TRUE;
+
+	HRESULT hr = m_device->CreateRasterizerState(&wireframeDesc, &m_wireframeRS);
+	if (FAILED(hr)) {
+		LOG_ERROR("Failed to create wireframe rasterizer state: 0x{:08X}", hr);
+		return false;
+	}
+	LOG_DEBUG("  Created wireframe rasterizer state for debug visualization");
+
 	return true;
 }
 
@@ -556,7 +572,7 @@ DirectX::SimpleMath::Matrix Renderer::CalculateViewProjMatrix() const
 	return viewProj;
 }
 
-bool Renderer::ApplyMaterial(const GPUMaterial& material) {
+bool Renderer::ApplyMaterial(const GPUMaterial& material, uint32_t materialIndex) {
 	// Set blend state
 	float blendFactor[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
 	m_context->OMSetBlendState(material.blendState, blendFactor, 0xFFFFFFFF);
@@ -579,16 +595,19 @@ bool Renderer::ApplyMaterial(const GPUMaterial& material) {
 		LOG_DEBUG("      Texture: none");
 	}
 
-	// Update material constant buffer with alpha threshold and function
+	// Update material constant buffer with alpha threshold, function, debug mode, and material index
 	D3D11_MAPPED_SUBRESOURCE mapped;
 	HRESULT hr = m_context->Map(m_materialConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped);
 	if (SUCCEEDED(hr)) {
 		MaterialConstants* matConstants = static_cast<MaterialConstants*>(mapped.pData);
 		matConstants->alphaThreshold = material.alphaThreshold;
 		matConstants->alphaFunc = material.alphaFunc;
+		matConstants->debugMode = static_cast<uint32_t>(m_debugMode);
+		matConstants->materialIndex = materialIndex;
 		m_context->Unmap(m_materialConstantBuffer, 0);
 
-		LOG_DEBUG("      Alpha: threshold={:.3f}, func={}", material.alphaThreshold, material.alphaFunc);
+		LOG_DEBUG("      Alpha: threshold={:.3f}, func={}, debugMode={}, matIdx={}",
+			material.alphaThreshold, material.alphaFunc, static_cast<int>(m_debugMode), materialIndex);
 	} else {
 		LOG_WARN("      Failed to map material constant buffer: 0x{:08X}", hr);
 	}
@@ -611,8 +630,14 @@ bool Renderer::RenderFrame(int frameIdx) {
 	m_context->VSSetShader(m_vertexShader, nullptr, 0);
 	m_context->PSSetShader(m_pixelShader, nullptr, 0);
 
-	// Use DirectXTK CommonStates for rasterizer
-	m_context->RSSetState(m_states->CullNone());
+	// Set rasterizer state based on debug mode
+	if (m_debugMode == DebugMode::Wireframe) {
+		m_context->RSSetState(m_wireframeRS);
+		LOG_DEBUG("  Rasterizer: wireframe (debug mode)");
+	} else {
+		m_context->RSSetState(m_states->CullNone());
+		LOG_DEBUG("  Rasterizer: solid");
+	}
 
 	// Update constant buffer
 	DirectX::SimpleMath::Matrix viewProj = CalculateViewProjMatrix();
@@ -673,9 +698,9 @@ bool Renderer::RenderFrame(int frameIdx) {
 		m_context->IASetVertexBuffers(0, 1, &vb->buffer, &stride, &offset);
 		m_context->IASetIndexBuffer(ib->buffer, DXGI_FORMAT_R16_UINT, 0);
 
-		// Apply material (sets blend state, depth state, texture, sampler)
+		// Apply material (sets blend state, depth state, texture, sampler, debug mode)
 		LOG_DEBUG("    Material {}:", frame.matsBlock);
-		ApplyMaterial(*mat);
+		ApplyMaterial(*mat, frame.matsBlock);
 
 		// Draw using primitive blocks if available
 		if (frame.primBlock < m_primitiveBlocks.size() && !m_primitiveBlocks[frame.primBlock].empty()) {

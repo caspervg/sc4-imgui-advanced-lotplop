@@ -60,6 +60,7 @@
 #include <future>
 #include <deque>
 #include "cIGZPersistDBRecord.h"
+#include "cISCProperty.h"
 #include "SC4HashSet.h"
 
 class AdvancedLotPlopDllDirector;
@@ -300,6 +301,18 @@ private:
     bool imGuiInitialized = false;
     bool pendingCacheBuild = false;
 
+	// S3D thumbnail proof-of-concept
+	bool showS3DThumbnail = true;
+	ID3D11ShaderResourceView *s3dThumbnailSRV = nullptr;
+	std::unique_ptr<S3D::Renderer> s3dRenderer;
+	bool s3dThumbnailGenerated = false;
+	int s3dZoomLevel = 5;  // SC4 zoom levels: 1-5 (5 is closest)
+	int s3dRotation = 0;   // SC4 rotations: 0-3 (cardinal directions)
+
+	// S3D thumbnail generation
+	void GenerateS3DThumbnail(ID3D11Device *device, ID3D11DeviceContext *context);
+
+	void RenderS3DThumbnailWindow();
     void RegisterToggleShortcut() {
         if (!pView3D) return;
         cIGZPersistResourceManagerPtr pRM;

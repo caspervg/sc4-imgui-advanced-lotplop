@@ -1,3 +1,4 @@
+// ReSharper disable CppDFAConstantConditions
 #include "FSHReader.h"
 #include "QFSDecompressor.h"
 #include "../utils/Logger.h"
@@ -9,6 +10,10 @@
 #include "cRZAutoRefCount.h"
 #include <cstring>
 #include <algorithm>
+
+#include "cIGZPersistResourceKeyList.h"
+#include "PersistResourceKeyFilterByTypeAndInstance.h"
+#include "SC4HashSet.h"
 
 namespace FSH {
 
@@ -24,7 +29,7 @@ bool Reader::Parse(const uint8_t* buffer, size_t bufferSize, File& outFile) {
 	size_t dataSize = bufferSize;
 
 	if (QFS::Decompressor::IsQFSCompressed(buffer, bufferSize)) {
-		LOG_DEBUG("FSH is QFS-compressed, decompressing...");
+		LOG_TRACE("FSH is QFS-compressed, decompressing...");
 		if (!QFS::Decompressor::Decompress(buffer, bufferSize, decompressedData)) {
 			LOG_ERROR("Failed to decompress QFS-compressed FSH");
 			return false;
@@ -47,7 +52,7 @@ bool Reader::Parse(const uint8_t* buffer, size_t bufferSize, File& outFile) {
 		return false;
 	}
 
-	LOG_DEBUG("FSH header: magic=0x{:08X}, entries={}, hasMipmaps={}",
+	LOG_TRACE("FSH header: magic=0x{:08X}, entries={}, hasMipmaps={}",
 	          outFile.header.magic, outFile.header.numEntries, outFile.header.HasMipmaps());
 
 	// Read directory entries
@@ -77,7 +82,7 @@ bool Reader::Parse(const uint8_t* buffer, size_t bufferSize, File& outFile) {
 		outFile.bitmaps.push_back(std::move(bitmap));
 	}
 
-	LOG_DEBUG("Parsed {} FSH bitmaps", outFile.bitmaps.size());
+	LOG_TRACE("Parsed {} FSH bitmaps", outFile.bitmaps.size());
 	return true;
 }
 
@@ -98,13 +103,13 @@ bool Reader::ParseBitmap(const uint8_t*& ptr, const uint8_t* end, Bitmap& outBit
 	outBitmap.width = header.width;
 	outBitmap.height = header.height;
 
-	LOG_DEBUG("FSH bitmap header: code=0x{:08X} (format=0x{:02X}), width={}, height={}",
+	LOG_TRACE("FSH bitmap header: code=0x{:08X} (format=0x{:02X}), width={}, height={}",
 	          header.code, outBitmap.code, outBitmap.width, outBitmap.height);
 
 	// Calculate expected data size
 	size_t dataSize = outBitmap.GetExpectedDataSize();
 
-	LOG_DEBUG("FSH expected data size: {} bytes (code=0x{:02X})", dataSize, outBitmap.code);
+	LOG_TRACE("FSH expected data size: {} bytes (code=0x{:02X})", dataSize, outBitmap.code);
 
 	if (dataSize == 0) {
 		LOG_ERROR("Unknown FSH format code: 0x{:02X} (width={}, height={})",
@@ -122,7 +127,7 @@ bool Reader::ParseBitmap(const uint8_t*& ptr, const uint8_t* end, Bitmap& outBit
 	outBitmap.data.resize(dataSize);
 	if (!ReadBytes(ptr, end, outBitmap.data.data(), dataSize)) return false;
 
-	LOG_DEBUG("Parsed FSH bitmap: {}x{}, code=0x{:02X}, size={}",
+	LOG_TRACE("Parsed FSH bitmap: {}x{}, code=0x{:02X}, size={}",
 	          outBitmap.width, outBitmap.height, outBitmap.code, dataSize);
 
 	return true;
@@ -391,7 +396,7 @@ ID3D11ShaderResourceView* Reader::CreateTexture(
 		return nullptr;
 	}
 
-	LOG_DEBUG("Created D3D11 texture from FSH: {}x{}, format=0x{:02X}",
+	LOG_TRACE("Created D3D11 texture from FSH: {}x{}, format=0x{:02X}",
 	          mainBitmap->width, mainBitmap->height, mainBitmap->code);
 
 	return srv;
@@ -434,9 +439,38 @@ ID3D11ShaderResourceView* Reader::LoadTextureFromResourceManager(
 	// Open DB record using OpenDBRecord (same pattern as S3D loading)
 	cIGZPersistDBRecord* pRecord = nullptr;
 	if (!pRM->OpenDBRecord(key, &pRecord, false)) {
-		LOG_WARN("FSH texture not found: type=0x{:08X}, group=0x{:08X}, instance=0x{:08X}",
+		LOG_DEBUG("FSH texture not found: type=0x{:08X}, group=0x{:08X}, instance=0x{:08X}. Trying all groups",
 		         FSH_TYPE_ID, groupID, instanceID);
-		return nullptr;
+
+		cRZAutoRefCount<cIGZPersistResourceKeyList> pKeyList;
+		pRM->GetAvailableResourceList(pKeyList.AsPPObj(), new PersistResourceKeyFilterByTypeAndInstance(FSH_TYPE_ID, instanceID));
+		if (!pKeyList)
+		{
+			LOG_ERROR("Failed to get available resource list");
+			return nullptr;
+		}
+
+		auto found = false;
+		for (int i = 0; i < pKeyList->Size(); i++)
+		{
+			key = pKeyList->GetKey(i);
+			LOG_DEBUG("Trying FSH texture in alternative group: type=0x{:08X}, group=0x{:08X}, instance=0x{:08X}",
+				key.type, key.group, key.instance);
+			if (pRM->OpenDBRecord(key, &pRecord, false))
+			{
+				LOG_DEBUG("FSH texture found in alternative group: type=0x{:08X}, group=0x{:08X}, instance=0x{:08X}",
+					FSH_TYPE_ID, key.group, instanceID);
+				found = true;
+				break;
+			}
+		}
+
+		if (!found)
+		{
+			LOG_WARN("FSH texture not found exhaustively either: type=0x{:08X}, group=0x{:08X}, instance=0x{:08X}",
+				FSH_TYPE_ID, groupID, instanceID);
+			return nullptr;
+		}
 	}
 
 	cRZAutoRefCount<cIGZPersistDBRecord> record(pRecord);

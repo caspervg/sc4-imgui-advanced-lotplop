@@ -78,7 +78,7 @@ bool Reader::ParseHEAD(const uint8_t*& ptr, const uint8_t* end, Model& model) {
 	if (!ReadValue(ptr, end, model.majorVersion)) return false;
 	if (!ReadValue(ptr, end, model.minorVersion)) return false;
 
-	LOG_DEBUG("S3D version: {}.{}", model.majorVersion, model.minorVersion);
+	LOG_TRACE("S3D version: {}.{}", model.majorVersion, model.minorVersion);
 
 	// Validate version
 	if (model.majorVersion != 1 || model.minorVersion < 1 || model.minorVersion > 5) {
@@ -241,7 +241,7 @@ bool Reader::ParseVERT(const uint8_t*& ptr, const uint8_t* end, Model& model) {
 		}
 	}
 
-	LOG_DEBUG("Parsed {} vertex buffers", nbrBlocks);
+	LOG_TRACE("Parsed {} vertex buffers", nbrBlocks);
 	return true;
 }
 
@@ -288,7 +288,7 @@ bool Reader::ParseINDX(const uint8_t*& ptr, const uint8_t* end, Model& model) {
 		}
 	}
 
-	LOG_DEBUG("Parsed {} index buffers", nbrBlocks);
+	LOG_TRACE("Parsed {} index buffers", nbrBlocks);
 	return true;
 }
 
@@ -327,7 +327,7 @@ bool Reader::ParsePRIM(const uint8_t*& ptr, const uint8_t* end, Model& model) {
 		}
 	}
 
-	LOG_DEBUG("Parsed {} primitive blocks", nbrBlocks);
+	LOG_TRACE("Parsed {} primitive blocks", nbrBlocks);
 	return true;
 }
 
@@ -404,7 +404,7 @@ bool Reader::ParseMATS(const uint8_t*& ptr, const uint8_t* end, Model& model) {
 		}
 	}
 
-	LOG_DEBUG("Parsed {} materials", nbrBlocks);
+	LOG_TRACE("Parsed {} materials", nbrBlocks);
 	return true;
 }
 
@@ -459,7 +459,7 @@ bool Reader::ParseANIM(const uint8_t*& ptr, const uint8_t* end, Model& model) {
 		}
 	}
 
-	LOG_DEBUG("Parsed animation: {} frames, {} meshes", anim.frameCount, nbrMeshes);
+	LOG_TRACE("Parsed animation: {} frames, {} meshes", anim.frameCount, nbrMeshes);
 	return true;
 }
 

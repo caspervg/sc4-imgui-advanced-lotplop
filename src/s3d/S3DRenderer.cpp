@@ -36,11 +36,11 @@ Renderer::~Renderer() {
 }
 
 bool Renderer::CreateShaders() {
-	LOG_DEBUG("Creating S3D shaders and pipeline resources...");
+	LOG_TRACE("Creating S3D shaders and pipeline resources...");
 	HRESULT hr;
 
 	// Compile vertex shader
-	LOG_DEBUG("  Compiling vertex shader (vs_4_0, {} bytes)...", strlen(Shaders::VERTEX_SHADER));
+	LOG_TRACE("  Compiling vertex shader (vs_4_0, {} bytes)...", strlen(Shaders::VERTEX_SHADER));
 	ID3DBlob* vsBlob = nullptr;
 	ID3DBlob* errorBlob = nullptr;
 
@@ -68,7 +68,7 @@ bool Renderer::CreateShaders() {
 		return false;
 	}
 
-	LOG_DEBUG("    Vertex shader compiled successfully ({} bytes bytecode)", vsBlob->GetBufferSize());
+	LOG_TRACE("    Vertex shader compiled successfully ({} bytes bytecode)", vsBlob->GetBufferSize());
 
 	hr = m_device->CreateVertexShader(vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), nullptr, &m_vertexShader);
 	if (FAILED(hr)) {
@@ -78,7 +78,7 @@ bool Renderer::CreateShaders() {
 	}
 
 	// Create input layout
-	LOG_DEBUG("  Creating input layout (4 elements: POSITION, COLOR, TEXCOORD0, TEXCOORD1)...");
+	LOG_TRACE("  Creating input layout (4 elements: POSITION, COLOR, TEXCOORD0, TEXCOORD1)...");
 	D3D11_INPUT_ELEMENT_DESC layout[] = {
 		{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
 		{ "COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0 },
@@ -94,10 +94,10 @@ bool Renderer::CreateShaders() {
 		return false;
 	}
 
-	LOG_DEBUG("    Input layout created (stride=44 bytes per vertex)");
+	LOG_TRACE("    Input layout created (stride=44 bytes per vertex)");
 
 	// Compile pixel shader
-	LOG_DEBUG("  Compiling pixel shader (ps_4_0, {} bytes)...", strlen(Shaders::PIXEL_SHADER));
+	LOG_TRACE("  Compiling pixel shader (ps_4_0, {} bytes)...", strlen(Shaders::PIXEL_SHADER));
 	ID3DBlob* psBlob = nullptr;
 	hr = D3DCompile(
 		Shaders::PIXEL_SHADER,
@@ -123,7 +123,7 @@ bool Renderer::CreateShaders() {
 		return false;
 	}
 
-	LOG_DEBUG("    Pixel shader compiled successfully ({} bytes bytecode)", psBlob->GetBufferSize());
+	LOG_TRACE("    Pixel shader compiled successfully ({} bytes bytecode)", psBlob->GetBufferSize());
 
 	hr = m_device->CreatePixelShader(psBlob->GetBufferPointer(), psBlob->GetBufferSize(), nullptr, &m_pixelShader);
 	psBlob->Release();
@@ -134,7 +134,7 @@ bool Renderer::CreateShaders() {
 	}
 
 	// Create VS constant buffer
-	LOG_DEBUG("  Creating VS constant buffer ({} bytes)...", sizeof(ShaderConstants));
+	LOG_TRACE("  Creating VS constant buffer ({} bytes)...", sizeof(ShaderConstants));
 	D3D11_BUFFER_DESC cbDesc = {};
 	cbDesc.ByteWidth = sizeof(ShaderConstants);
 	cbDesc.Usage = D3D11_USAGE_DYNAMIC;
@@ -148,7 +148,7 @@ bool Renderer::CreateShaders() {
 	}
 
 	// Create PS constant buffer for material properties
-	LOG_DEBUG("  Creating PS constant buffer ({} bytes)...", sizeof(MaterialConstants));
+	LOG_TRACE("  Creating PS constant buffer ({} bytes)...", sizeof(MaterialConstants));
 	cbDesc.ByteWidth = sizeof(MaterialConstants);
 	hr = m_device->CreateBuffer(&cbDesc, nullptr, &m_materialConstantBuffer);
 	if (FAILED(hr)) {
@@ -156,14 +156,14 @@ bool Renderer::CreateShaders() {
 		return false;
 	}
 
-	LOG_DEBUG("S3D shaders and pipeline created successfully");
+	LOG_TRACE("S3D shaders and pipeline created successfully");
 	return true;
 }
 
 bool Renderer::CreateStates() {
 	// Use DirectXTK CommonStates - replaces 26 lines of manual state creation!
 	m_states = std::make_unique<DirectX::CommonStates>(m_device);
-	LOG_DEBUG("S3D states created using DirectXTK CommonStates");
+	LOG_TRACE("S3D states created using DirectXTK CommonStates");
 
 	// Create wireframe rasterizer state for debug mode
 	D3D11_RASTERIZER_DESC wireframeDesc = {};
@@ -177,7 +177,7 @@ bool Renderer::CreateStates() {
 		LOG_ERROR("Failed to create wireframe rasterizer state: 0x{:08X}", hr);
 		return false;
 	}
-	LOG_DEBUG("  Created wireframe rasterizer state for debug visualization");
+	LOG_TRACE("  Created wireframe rasterizer state for debug visualization");
 
 	return true;
 }
@@ -208,7 +208,7 @@ bool Renderer::CreateVertexBuffers(const Model& model) {
 		m_vertexBuffers.push_back(std::move(gpuVB));
 	}
 
-	LOG_DEBUG("Created {} vertex buffers", m_vertexBuffers.size());
+	LOG_TRACE("Created {} vertex buffers", m_vertexBuffers.size());
 	return true;
 }
 
@@ -237,7 +237,7 @@ bool Renderer::CreateIndexBuffers(const Model& model) {
 		m_indexBuffers.push_back(std::move(gpuIB));
 	}
 
-	LOG_DEBUG("Created {} index buffers", m_indexBuffers.size());
+	LOG_TRACE("Created {} index buffers", m_indexBuffers.size());
 	return true;
 }
 
@@ -245,13 +245,13 @@ bool Renderer::CreateMaterials(const Model& model, cIGZPersistResourceManager* p
 	m_materials.clear();
 	m_materials.reserve(model.materials.size());
 
-	LOG_DEBUG("Creating {} materials for S3D model", model.materials.size());
+	LOG_TRACE("Creating {} materials for S3D model", model.materials.size());
 
 	for (size_t matIdx = 0; matIdx < model.materials.size(); ++matIdx) {
 		const auto& mat = model.materials[matIdx];
 		auto gpuMat = std::make_unique<GPUMaterial>();
 
-		LOG_DEBUG("Material {}: flags=0x{:08X} (ALPHA_TEST={}, DEPTH_TEST={}, BACKFACE_CULL={}, BLEND={}, TEXTURE={}, DEPTH_WRITES={})",
+		LOG_TRACE("Material {}: flags=0x{:08X} (ALPHA_TEST={}, DEPTH_TEST={}, BACKFACE_CULL={}, BLEND={}, TEXTURE={}, DEPTH_WRITES={})",
 			matIdx, mat.flags,
 			(mat.flags & MAT_ALPHA_TEST) ? "YES" : "NO",
 			(mat.flags & MAT_DEPTH_TEST) ? "YES" : "NO",
@@ -266,17 +266,17 @@ bool Renderer::CreateMaterials(const Model& model, cIGZPersistResourceManager* p
 		// Store alpha test function (if MAT_ALPHA_TEST flag is set)
 		if (mat.flags & MAT_ALPHA_TEST) {
 			gpuMat->alphaFunc = EnumMappings::MapAlphaFunc(mat.alphaFunc);
-			LOG_DEBUG("  Alpha test: func=0x{:02X} → {}, threshold={:.3f}",
+			LOG_TRACE("  Alpha test: func=0x{:02X} → {}, threshold={:.3f}",
 				mat.alphaFunc, gpuMat->alphaFunc, mat.alphaThreshold);
 		} else {
 			gpuMat->alphaFunc = 7; // GL_ALWAYS - no alpha test
-			LOG_DEBUG("  Alpha test: disabled (ALWAYS pass)");
+			LOG_TRACE("  Alpha test: disabled (ALWAYS pass)");
 		}
 
 		// Load texture if present
 		if (gpuMat->hasTexture && pRM) {
 			uint32_t textureID = mat.textures[0].textureID;
-			LOG_DEBUG("  Texture: ID=0x{:08X}, count={}", textureID, mat.textures.size());
+			LOG_TRACE("  Texture: ID=0x{:08X}, count={}", textureID, mat.textures.size());
 
 			// Try multiple common texture group IDs
 			const uint32_t textureGroups[] = {
@@ -287,7 +287,7 @@ bool Renderer::CreateMaterials(const Model& model, cIGZPersistResourceManager* p
 			for (uint32_t tryGroup : textureGroups) {
 				gpuMat->textureSRV = FSH::Reader::LoadTextureFromResourceManager(m_device, pRM, tryGroup, textureID);
 				if (gpuMat->textureSRV) {
-					LOG_DEBUG("    Loaded texture 0x{:08X} from group 0x{:08X}", textureID, tryGroup);
+					LOG_TRACE("    Loaded texture 0x{:08X} from group 0x{:08X}", textureID, tryGroup);
 					break;
 				}
 			}
@@ -302,7 +302,7 @@ bool Renderer::CreateMaterials(const Model& model, cIGZPersistResourceManager* p
 		if (gpuMat->hasTexture && !mat.textures.empty()) {
 			const auto& texInfo = mat.textures[0];
 
-			LOG_DEBUG("  Texture properties: wrapS=0x{:02X}, wrapT=0x{:02X}, minFilter=0x{:02X}, magFilter=0x{:02X}",
+			LOG_TRACE("  Texture properties: wrapS=0x{:02X}, wrapT=0x{:02X}, minFilter=0x{:02X}, magFilter=0x{:02X}",
 				texInfo.wrapS, texInfo.wrapT, texInfo.minFilter, texInfo.magFilter);
 
 			D3D11_SAMPLER_DESC samplerDesc = {};
@@ -314,7 +314,7 @@ bool Renderer::CreateMaterials(const Model& model, cIGZPersistResourceManager* p
 			samplerDesc.MinLOD = 0;
 			samplerDesc.MaxLOD = D3D11_FLOAT32_MAX;
 
-			LOG_DEBUG("    Created sampler: Filter={}, AddressU={}, AddressV={}",
+			LOG_TRACE("    Created sampler: Filter={}, AddressU={}, AddressV={}",
 				int(samplerDesc.Filter), int(samplerDesc.AddressU), int(samplerDesc.AddressV));
 
 			HRESULT hr = m_device->CreateSamplerState(&samplerDesc, &gpuMat->samplerState);
@@ -325,7 +325,7 @@ bool Renderer::CreateMaterials(const Model& model, cIGZPersistResourceManager* p
 			}
 		} else if (gpuMat->hasTexture) {
 			// Fallback: use CommonStates LinearClamp if no texture info
-			LOG_DEBUG("  Using fallback LinearClamp sampler (no texture info)");
+			LOG_TRACE("  Using fallback LinearClamp sampler (no texture info)");
 			gpuMat->samplerState = m_states->LinearClamp();
 			gpuMat->samplerState->AddRef(); // Keep reference
 		}
@@ -343,11 +343,11 @@ bool Renderer::CreateMaterials(const Model& model, cIGZPersistResourceManager* p
 			blendDesc.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_ZERO;
 			blendDesc.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
 
-			LOG_DEBUG("  Blend: srcBlend=0x{:02X} → {}, dstBlend=0x{:02X} → {}",
+			LOG_TRACE("  Blend: srcBlend=0x{:02X} → {}, dstBlend=0x{:02X} → {}",
 				int(mat.srcBlend), int(blendDesc.RenderTarget[0].SrcBlend),
 				int(mat.dstBlend), int(blendDesc.RenderTarget[0].DestBlend));
 		} else {
-			LOG_DEBUG("  Blend: disabled");
+			LOG_TRACE("  Blend: disabled");
 		}
 
 		HRESULT hr = m_device->CreateBlendState(&blendDesc, &gpuMat->blendState);
@@ -363,7 +363,7 @@ bool Renderer::CreateMaterials(const Model& model, cIGZPersistResourceManager* p
 		dsDesc.DepthWriteMask = (mat.flags & MAT_DEPTH_WRITES) ? D3D11_DEPTH_WRITE_MASK_ALL : D3D11_DEPTH_WRITE_MASK_ZERO;
 		dsDesc.DepthFunc = EnumMappings::MapComparisonFunc(mat.depthFunc);
 
-		LOG_DEBUG("  Depth: test={}, write={}, func=0x{:02X}",
+		LOG_TRACE("  Depth: test={}, write={}, func=0x{:02X}",
 			dsDesc.DepthEnable ? "YES" : "NO",
 			(dsDesc.DepthWriteMask == D3D11_DEPTH_WRITE_MASK_ALL) ? "YES" : "NO",
 			mat.depthFunc);
@@ -378,7 +378,7 @@ bool Renderer::CreateMaterials(const Model& model, cIGZPersistResourceManager* p
 		m_materials.push_back(std::move(gpuMat));
 	}
 
-	LOG_DEBUG("Created {} materials successfully", m_materials.size());
+	LOG_TRACE("Created {} materials successfully", m_materials.size());
 	return true;
 }
 
@@ -394,7 +394,7 @@ bool Renderer::LoadModel(const Model& model, cIGZPersistResourceManager* pRM, ui
 
 	LOG_INFO("Loading S3D model v{}.{} from group 0x{:08X}",
 		model.majorVersion, model.minorVersion, groupID);
-	LOG_DEBUG("  Buffers: {} vertex, {} index, {} primitive blocks, {} materials",
+	LOG_TRACE("  Buffers: {} vertex, {} index, {} primitive blocks, {} materials",
 		model.vertexBuffers.size(), model.indexBuffers.size(),
 		model.primitiveBlocks.size(), model.materials.size());
 
@@ -407,21 +407,21 @@ bool Renderer::LoadModel(const Model& model, cIGZPersistResourceManager* pRM, ui
 
 	// Log primitive block details
 	if (!m_primitiveBlocks.empty()) {
-		LOG_DEBUG("Primitive blocks detail:");
+		LOG_TRACE("Primitive blocks detail:");
 		for (size_t i = 0; i < m_primitiveBlocks.size(); ++i) {
 			const auto& block = m_primitiveBlocks[i];
-			LOG_DEBUG("  Block {}: {} primitives", i, block.size());
+			LOG_TRACE("  Block {}: {} primitives", i, block.size());
 			for (size_t j = 0; j < block.size(); ++j) {
 				const auto& prim = block[j];
 				const char* typeStr = (prim.type == 0) ? "TRIANGLELIST" :
 				                      (prim.type == 1) ? "TRIANGLESTRIP" :
 				                      (prim.type == 2) ? "TRIANGLEFAN" : "UNKNOWN";
-				LOG_DEBUG("    Prim {}: type={} ({}), first={}, length={}",
+				LOG_TRACE("    Prim {}: type={} ({}), first={}, length={}",
 					j, prim.type, typeStr, prim.first, prim.length);
 			}
 		}
 	} else {
-		LOG_DEBUG("No primitive blocks - will use fallback rendering");
+		LOG_TRACE("No primitive blocks - will use fallback rendering");
 	}
 
 	// Copy animation data
@@ -430,7 +430,7 @@ bool Renderer::LoadModel(const Model& model, cIGZPersistResourceManager* pRM, ui
 
 	// Extract all frames from all meshes
 	for (const auto& mesh : m_meshes) {
-		LOG_DEBUG("Mesh '{}': {} frames, flags=0x{:02X}",
+		LOG_TRACE("Mesh '{}': {} frames, flags=0x{:02X}",
 			mesh.name, mesh.frames.size(), mesh.flags);
 		m_frames.insert(m_frames.end(), mesh.frames.begin(), mesh.frames.end());
 	}
@@ -441,7 +441,7 @@ bool Renderer::LoadModel(const Model& model, cIGZPersistResourceManager* pRM, ui
 
 	LOG_INFO("S3D model loaded successfully: {} meshes, {} frames, {} primitive blocks",
 		m_meshes.size(), m_frames.size(), m_primitiveBlocks.size());
-	LOG_DEBUG("  Bounding box: min=({:.2f}, {:.2f}, {:.2f}), max=({:.2f}, {:.2f}, {:.2f})",
+	LOG_TRACE("  Bounding box: min=({:.2f}, {:.2f}, {:.2f}), max=({:.2f}, {:.2f}, {:.2f})",
 		m_bbMin.x, m_bbMin.y, m_bbMin.z, m_bbMax.x, m_bbMax.y, m_bbMax.z);
 
 	return true;
@@ -490,14 +490,14 @@ DirectX::SimpleMath::Matrix Renderer::CalculateViewProjMatrix() const
 	using namespace DirectX;
 	using namespace DirectX::SimpleMath;
 
-	LOG_DEBUG("Calculating view-projection matrix for S3D rendering...");
-	LOG_DEBUG("  Model bounding box: min=({:.3f}, {:.3f}, {:.3f}), max=({:.3f}, {:.3f}, {:.3f})",
+	LOG_TRACE("Calculating view-projection matrix for S3D rendering...");
+	LOG_TRACE("  Model bounding box: min=({:.3f}, {:.3f}, {:.3f}), max=({:.3f}, {:.3f}, {:.3f})",
 		m_bbMin.x, m_bbMin.y, m_bbMin.z, m_bbMax.x, m_bbMax.y, m_bbMax.z);
 
 	const float ry_deg = RenderConstants::BILLBOARD_ROTATION_Y;  // -22.5° isometric Y rotation
 	const float rx_deg = RenderConstants::BILLBOARD_ROTATION_X;  // 45° isometric X tilt
 
-	LOG_DEBUG("  Billboard rotation: Y={:.1f}°, X={:.1f}°", ry_deg, rx_deg);
+	LOG_TRACE("  Billboard rotation: Y={:.1f}°, X={:.1f}°", ry_deg, rx_deg);
 
 	Matrix rotY_pos = Matrix::CreateRotationY(XMConvertToRadians(22.5f));   // +22.5 for bounds calculation
 	Matrix rotX_neg = Matrix::CreateRotationX(XMConvertToRadians(-45.0f));  // -45 for bounds calculation
@@ -522,7 +522,7 @@ DirectX::SimpleMath::Matrix Renderer::CalculateViewProjMatrix() const
 		minY = (std::min)(minY, v.y); maxY = (std::max)(maxY, v.y);
 		maxZ = (std::max)(maxZ, v.z);
 	}
-	LOG_DEBUG("  Rotated bounds: X=[{:.3f}, {:.3f}], Y=[{:.3f}, {:.3f}], maxZ={:.3f}",
+	LOG_TRACE("  Rotated bounds: X=[{:.3f}, {:.3f}], Y=[{:.3f}, {:.3f}], maxZ={:.3f}",
 		minX, maxX, minY, maxY, maxZ);
 
 	const float padding = RenderConstants::BOUNDING_BOX_PADDING;
@@ -538,13 +538,13 @@ DirectX::SimpleMath::Matrix Renderer::CalculateViewProjMatrix() const
 	float posy = (minY + maxY) * 0.5f;
 	float posz = maxZ;
 
-	LOG_DEBUG("  Orthographic projection: size={:.3f} (width={:.3f}, height={:.3f}, padding={:.0f}%)",
+	LOG_TRACE("  Orthographic projection: size={:.3f} (width={:.3f}, height={:.3f}, padding={:.0f}%)",
 		diff, width, height, (padding - 1.0f) * 100.0f);
-	LOG_DEBUG("  View center: ({:.3f}, {:.3f}, {:.3f})", posx, posy, posz);
+	LOG_TRACE("  View center: ({:.3f}, {:.3f}, {:.3f})", posx, posy, posz);
 
 	// DirectX applies transformations left-to-right, OpenGL applies right-to-left
 	// To match Python OpenGL: RotateY -> RotateX -> Translate
-	LOG_DEBUG("  Building view matrix (billboard: rotateY, rotateX, translate)...");
+	LOG_TRACE("  Building view matrix (billboard: rotateY, rotateX, translate)...");
 	Matrix view = Matrix::Identity;
 	view *= Matrix::CreateRotationY(XMConvertToRadians(ry_deg));       // Rotate -22.5° (applied first to vertices)
 	view *= Matrix::CreateRotationX(XMConvertToRadians(rx_deg));       // Tilt down 45° (applied second)
@@ -553,20 +553,20 @@ DirectX::SimpleMath::Matrix Renderer::CalculateViewProjMatrix() const
 	// Python OpenGL uses glOrtho(..., 40000, -40000) which creates a projection where
 	// the near plane is at -40000 and far at 40000 along the Z axis (after view transform)
 	// In DirectX LH, we need near < far, so we use symmetric range around 0
-	LOG_DEBUG("  Building projection matrix (orthographic LH, near={:.1f}, far={:.1f})...",
+	LOG_TRACE("  Building projection matrix (orthographic LH, near={:.1f}, far={:.1f})...",
 		RenderConstants::NEAR_PLANE, RenderConstants::FAR_PLANE);
 	Matrix proj = Matrix(XMMatrixOrthographicLH(diff, diff,
 		RenderConstants::NEAR_PLANE, RenderConstants::FAR_PLANE));
 	Matrix viewProj = view * proj;
 
-	LOG_DEBUG("  ViewProj matrix computed:");
-	LOG_DEBUG("    [{:7.3f} {:7.3f} {:7.3f} {:7.3f}]",
+	LOG_TRACE("  ViewProj matrix computed:");
+	LOG_TRACE("    [{:7.3f} {:7.3f} {:7.3f} {:7.3f}]",
 		viewProj._11, viewProj._12, viewProj._13, viewProj._14);
-	LOG_DEBUG("    [{:7.3f} {:7.3f} {:7.3f} {:7.3f}]",
+	LOG_TRACE("    [{:7.3f} {:7.3f} {:7.3f} {:7.3f}]",
 		viewProj._21, viewProj._22, viewProj._23, viewProj._24);
-	LOG_DEBUG("    [{:7.3f} {:7.3f} {:7.3f} {:7.3f}]",
+	LOG_TRACE("    [{:7.3f} {:7.3f} {:7.3f} {:7.3f}]",
 		viewProj._31, viewProj._32, viewProj._33, viewProj._34);
-	LOG_DEBUG("    [{:7.3f} {:7.3f} {:7.3f} {:7.3f}]",
+	LOG_TRACE("    [{:7.3f} {:7.3f} {:7.3f} {:7.3f}]",
 		viewProj._41, viewProj._42, viewProj._43, viewProj._44);
 
 	return viewProj;
@@ -583,7 +583,7 @@ bool Renderer::ApplyMaterial(const GPUMaterial& material, uint32_t materialIndex
 	// Set texture and sampler
 	if (material.textureSRV) {
 		m_context->PSSetShaderResources(0, 1, &material.textureSRV);
-		LOG_DEBUG("      Texture: bound, sampler={}", material.samplerState ? "custom" : "none");
+		LOG_TRACE("      Texture: bound, sampler={}", material.samplerState ? "custom" : "none");
 
 		// Use per-material sampler (wrapping, filtering)
 		if (material.samplerState) {
@@ -592,7 +592,7 @@ bool Renderer::ApplyMaterial(const GPUMaterial& material, uint32_t materialIndex
 	} else {
 		ID3D11ShaderResourceView* nullSRV = nullptr;
 		m_context->PSSetShaderResources(0, 1, &nullSRV);
-		LOG_DEBUG("      Texture: none");
+		LOG_TRACE("      Texture: none");
 	}
 
 	// Update material constant buffer with alpha threshold, function, debug mode, and material index
@@ -606,7 +606,7 @@ bool Renderer::ApplyMaterial(const GPUMaterial& material, uint32_t materialIndex
 		matConstants->materialIndex = materialIndex;
 		m_context->Unmap(m_materialConstantBuffer, 0);
 
-		LOG_DEBUG("      Alpha: threshold={:.3f}, func={}, debugMode={}, matIdx={}",
+		LOG_TRACE("      Alpha: threshold={:.3f}, func={}, debugMode={}, matIdx={}",
 			material.alphaThreshold, material.alphaFunc, static_cast<int>(m_debugMode), materialIndex);
 	} else {
 		LOG_WARN("      Failed to map material constant buffer: 0x{:08X}", hr);
@@ -623,7 +623,7 @@ bool Renderer::RenderFrame(int frameIdx) {
 		return false;
 	}
 
-	LOG_DEBUG("RenderFrame: Rendering frame {} of {} meshes", frameIdx, m_meshes.size());
+	LOG_TRACE("RenderFrame: Rendering frame {} of {} meshes", frameIdx, m_meshes.size());
 
 	// Setup pipeline
 	m_context->IASetInputLayout(m_inputLayout);
@@ -633,10 +633,10 @@ bool Renderer::RenderFrame(int frameIdx) {
 	// Set rasterizer state based on debug mode
 	if (m_debugMode == DebugMode::Wireframe) {
 		m_context->RSSetState(m_wireframeRS);
-		LOG_DEBUG("  Rasterizer: wireframe (debug mode)");
+		LOG_TRACE("  Rasterizer: wireframe (debug mode)");
 	} else {
 		m_context->RSSetState(m_states->CullNone());
-		LOG_DEBUG("  Rasterizer: solid");
+		LOG_TRACE("  Rasterizer: solid");
 	}
 
 	// Update constant buffer
@@ -671,7 +671,7 @@ bool Renderer::RenderFrame(int frameIdx) {
 
 		const auto& frame = mesh.frames[frameIdx];
 
-		LOG_DEBUG("  Mesh {} '{}': vert={}, index={}, prim={}, mat={}",
+		LOG_TRACE("  Mesh {} '{}': vert={}, index={}, prim={}, mat={}",
 			meshIdx, mesh.name, frame.vertBlock, frame.indexBlock, frame.primBlock, frame.matsBlock);
 
 		// Validate indices
@@ -690,7 +690,7 @@ bool Renderer::RenderFrame(int frameIdx) {
 		auto& ib = m_indexBuffers[frame.indexBlock];
 		auto& mat = m_materials[frame.matsBlock];
 
-		LOG_DEBUG("    Buffers: VB={} verts, IB={} indices",
+		LOG_TRACE("    Buffers: VB={} verts, IB={} indices",
 			vb->count, ib->count);
 
 		UINT stride = vb->stride;
@@ -699,14 +699,14 @@ bool Renderer::RenderFrame(int frameIdx) {
 		m_context->IASetIndexBuffer(ib->buffer, DXGI_FORMAT_R16_UINT, 0);
 
 		// Apply material (sets blend state, depth state, texture, sampler, debug mode)
-		LOG_DEBUG("    Material {}:", frame.matsBlock);
+		LOG_TRACE("    Material {}:", frame.matsBlock);
 		ApplyMaterial(*mat, frame.matsBlock);
 
 		// Draw using primitive blocks if available
 		if (frame.primBlock < m_primitiveBlocks.size() && !m_primitiveBlocks[frame.primBlock].empty()) {
 			const auto& primBlock = m_primitiveBlocks[frame.primBlock];
 
-			LOG_DEBUG("    Using primitive block {} ({} primitives)", frame.primBlock, primBlock.size());
+			LOG_TRACE("    Using primitive block {} ({} primitives)", frame.primBlock, primBlock.size());
 
 			for (size_t primIdx = 0; primIdx < primBlock.size(); ++primIdx) {
 				const auto& prim = primBlock[primIdx];
@@ -735,7 +735,7 @@ bool Renderer::RenderFrame(int frameIdx) {
 				m_context->IASetPrimitiveTopology(topology);
 
 				// Draw primitive
-				LOG_DEBUG("      Prim {}: {} first={}, length={}",
+				LOG_TRACE("      Prim {}: {} first={}, length={}",
 					primIdx, topologyStr, prim.first, prim.length);
 				m_context->DrawIndexed(prim.length, prim.first, 0);
 				totalDrawCalls++;
@@ -749,7 +749,7 @@ bool Renderer::RenderFrame(int frameIdx) {
 			}
 		} else {
 			// Fallback: No primitive blocks, draw entire index buffer as triangle list
-			LOG_DEBUG("    Using fallback rendering (no primitive blocks)");
+			LOG_TRACE("    Using fallback rendering (no primitive blocks)");
 			m_context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 			m_context->DrawIndexed(ib->count, 0, 0);
 			totalDrawCalls++;
@@ -759,19 +759,19 @@ bool Renderer::RenderFrame(int frameIdx) {
 		meshDrawCount++;
 	}
 
-	LOG_DEBUG("RenderFrame complete: {} meshes, {} draw calls, {} triangles",
+	LOG_TRACE("RenderFrame complete: {} meshes, {} draw calls, {} triangles",
 		meshDrawCount, totalDrawCalls, totalTriangles);
 	return true;
 }
 
 std::unique_ptr<Renderer::RenderTarget> Renderer::CreateRenderTarget(uint32_t width, uint32_t height) {
-	LOG_DEBUG("Creating render target: {}x{}", width, height);
+	LOG_TRACE("Creating render target: {}x{}", width, height);
 	auto rt = std::make_unique<RenderTarget>();
 	rt->width = width;
 	rt->height = height;
 
 	// Create texture
-	LOG_DEBUG("  Creating color texture (RGBA8, {}x{})...", width, height);
+	LOG_TRACE("  Creating color texture (RGBA8, {}x{})...", width, height);
 	D3D11_TEXTURE2D_DESC texDesc = {};
 	texDesc.Width = width;
 	texDesc.Height = height;
@@ -789,7 +789,7 @@ std::unique_ptr<Renderer::RenderTarget> Renderer::CreateRenderTarget(uint32_t wi
 	}
 
 	// Create RTV
-	LOG_DEBUG("  Creating render target view...");
+	LOG_TRACE("  Creating render target view...");
 	hr = m_device->CreateRenderTargetView(rt->texture, nullptr, &rt->rtv);
 	if (FAILED(hr)) {
 		LOG_ERROR("Failed to create render target view: 0x{:08X}", hr);
@@ -797,7 +797,7 @@ std::unique_ptr<Renderer::RenderTarget> Renderer::CreateRenderTarget(uint32_t wi
 	}
 
 	// Create depth buffer
-	LOG_DEBUG("  Creating depth buffer (D24S8, {}x{})...", width, height);
+	LOG_TRACE("  Creating depth buffer (D24S8, {}x{})...", width, height);
 	D3D11_TEXTURE2D_DESC depthDesc = {};
 	depthDesc.Width = width;
 	depthDesc.Height = height;
@@ -815,7 +815,7 @@ std::unique_ptr<Renderer::RenderTarget> Renderer::CreateRenderTarget(uint32_t wi
 	}
 
 	// Create DSV
-	LOG_DEBUG("  Creating depth stencil view...");
+	LOG_TRACE("  Creating depth stencil view...");
 	hr = m_device->CreateDepthStencilView(rt->depthBuffer, nullptr, &rt->dsv);
 	if (FAILED(hr)) {
 		LOG_ERROR("Failed to create depth stencil view: 0x{:08X}", hr);
@@ -823,14 +823,14 @@ std::unique_ptr<Renderer::RenderTarget> Renderer::CreateRenderTarget(uint32_t wi
 	}
 
 	// Create SRV for ImGui
-	LOG_DEBUG("  Creating shader resource view (for ImGui display)...");
+	LOG_TRACE("  Creating shader resource view (for ImGui display)...");
 	hr = m_device->CreateShaderResourceView(rt->texture, nullptr, &rt->srv);
 	if (FAILED(hr)) {
 		LOG_ERROR("Failed to create shader resource view: 0x{:08X}", hr);
 		return nullptr;
 	}
 
-	LOG_DEBUG("Render target created successfully");
+	LOG_TRACE("Render target created successfully");
 	return rt;
 }
 
@@ -843,7 +843,7 @@ ID3D11ShaderResourceView* Renderer::GenerateThumbnail(int size) {
 	}
 
 	// Create render target
-	LOG_DEBUG("  Creating offscreen render target...");
+	LOG_TRACE("  Creating offscreen render target...");
 	auto rt = CreateRenderTarget(size, size);
 	if (!rt) {
 		LOG_ERROR("  Failed to create render target for thumbnail");
@@ -851,7 +851,7 @@ ID3D11ShaderResourceView* Renderer::GenerateThumbnail(int size) {
 	}
 
 	// Save current render state (comprehensive state capture)
-	LOG_DEBUG("  Saving current GPU render state...");
+	LOG_TRACE("  Saving current GPU render state...");
 	ID3D11RenderTargetView* oldRTV = nullptr;
 	ID3D11DepthStencilView* oldDSV = nullptr;
 	m_context->OMGetRenderTargets(1, &oldRTV, &oldDSV);
@@ -875,12 +875,12 @@ ID3D11ShaderResourceView* Renderer::GenerateThumbnail(int size) {
 	UINT oldStencilRef;
 	m_context->OMGetDepthStencilState(&oldDSS, &oldStencilRef);
 
-	LOG_DEBUG("    Saved: RTV={}, DSV={}, RS={}, BS={}, DSS={}",
+	LOG_TRACE("    Saved: RTV={}, DSV={}, RS={}, BS={}, DSS={}",
 		oldRTV ? "yes" : "no", oldDSV ? "yes" : "no",
 		oldRS ? "yes" : "no", oldBS ? "yes" : "no", oldDSS ? "yes" : "no");
 
 	// Set our render target
-	LOG_DEBUG("  Setting thumbnail render target and viewport...");
+	LOG_TRACE("  Setting thumbnail render target and viewport...");
 	m_context->OMSetRenderTargets(1, &rt->rtv, rt->dsv);
 
 	// Set viewport
@@ -893,20 +893,20 @@ ID3D11ShaderResourceView* Renderer::GenerateThumbnail(int size) {
 
 	// Clear with a visible background color for thumbnails
 	float clearColor[4] = { 0.15f, 0.15f, 0.15f, 1.0f }; // Dark gray background
-	LOG_DEBUG("  Clearing render target (background: rgb({:.0f}, {:.0f}, {:.0f}))...",
+	LOG_TRACE("  Clearing render target (background: rgb({:.0f}, {:.0f}, {:.0f}))...",
 		clearColor[0] * 255, clearColor[1] * 255, clearColor[2] * 255);
 	m_context->ClearRenderTargetView(rt->rtv, clearColor);
 	m_context->ClearDepthStencilView(rt->dsv, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
 
 	// Render frame 0
-	LOG_DEBUG("  Rendering frame 0 to thumbnail...");
+	LOG_TRACE("  Rendering frame 0 to thumbnail...");
 	bool renderSuccess = RenderFrame(0);
 	if (!renderSuccess) {
 		LOG_WARN("  Thumbnail rendering returned false (may have issues)");
 	}
 
 	// Restore render state (comprehensive state restoration)
-	LOG_DEBUG("  Restoring previous GPU render state...");
+	LOG_TRACE("  Restoring previous GPU render state...");
 	m_context->OMSetRenderTargets(1, &oldRTV, oldDSV);
 	m_context->RSSetViewports(1, &oldViewport);
 	m_context->RSSetState(oldRS);

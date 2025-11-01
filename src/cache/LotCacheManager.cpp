@@ -38,6 +38,7 @@
 #include "../exemplar/IconResourceUtil.h"
 #include "../exemplar/PropertyUtil.h"
 #include "../gfx/IconLoader.h"
+#include "../s3d/S3DThumbnailGenerator.h"
 #include "../utils/Logger.h"
 
 LotCacheManager::LotCacheManager()
@@ -49,13 +50,14 @@ LotCacheManager::~LotCacheManager() {
 }
 
 void LotCacheManager::Clear() {
-    // Release icon SRVs
+    // Release all icon SRVs (PNG or S3D)
     for (auto& kv : lotConfigCache) {
         auto& entry = kv.second;
         if (entry.iconSRV) {
             entry.iconSRV->Release();
             entry.iconSRV = nullptr;
         }
+        entry.iconType = LotConfigEntry::IconType::None;
     }
 
     lotConfigCache.clear();
@@ -195,7 +197,33 @@ void LotCacheManager::BuildLotConfigCache(cISC4City* pCity, cIGZPersistResourceM
                                             entry.iconSRV = srv;
                                             entry.iconWidth = w;
                                             entry.iconHeight = h;
+                                            entry.iconType = LotConfigEntry::IconType::PNG;
                                         }
+                                    }
+                                }
+
+                                // If no PNG icon loaded, try S3D thumbnail as fallback
+                                // This is particularly useful for growable lots which often lack menu icons
+                                if (entry.iconType == LotConfigEntry::IconType::None && pDevice) {
+                                    // Get device context for rendering
+                                    ID3D11DeviceContext* pContext = nullptr;
+                                    pDevice->GetImmediateContext(&pContext);
+
+                                    if (pContext) {
+                                        // Generate S3D thumbnail (64x64, zoom 5, rotation 0 for standard view)
+                                        ID3D11ShaderResourceView* s3dSRV = S3D::ThumbnailGenerator::GenerateThumbnailFromExemplar(
+                                            pBuildingExemplar, pRM, pDevice, pContext, 64, 5, 0
+                                        );
+
+                                        if (s3dSRV) {
+                                            entry.iconSRV = s3dSRV;
+                                            entry.iconWidth = 64;
+                                            entry.iconHeight = 64;
+                                            entry.iconType = LotConfigEntry::IconType::S3D;
+                                            LOG_DEBUG("Generated S3D thumbnail for lot 0x{:08X} ({})", lotConfigID, entry.name);
+                                        }
+
+                                        pContext->Release();
                                     }
                                 }
 

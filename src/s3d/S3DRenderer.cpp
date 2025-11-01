@@ -280,7 +280,8 @@ bool Renderer::CreateMaterials(const Model& model, cIGZPersistResourceManager* p
 
 			// Try multiple common texture group IDs
 			const uint32_t textureGroups[] = {
-				groupID        // Model's group ID (from S3D resource)
+				groupID,        // Model's group ID (from S3D resource)
+				0x1abe787d		// Standard group ID for Maxis pre-rendered models + most True3D models
 			};
 
 			for (uint32_t tryGroup : textureGroups) {

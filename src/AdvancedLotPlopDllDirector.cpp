@@ -370,6 +370,8 @@ private:
     ID3D11ShaderResourceView *s3dThumbnailSRV = nullptr;
     std::unique_ptr<S3D::Renderer> s3dRenderer;
     bool s3dThumbnailGenerated = false;
+    int s3dZoomLevel = 5;  // SC4 zoom levels: 1-5 (5 is closest)
+    int s3dRotation = 0;   // SC4 rotations: 0-3 (cardinal directions)
 
     void RequestIcon(uint32_t lotID);
 
@@ -1186,9 +1188,22 @@ void AdvancedLotPlopDllDirector::GenerateS3DThumbnail(ID3D11Device *device, ID3D
             return;
         }
 
-        s3dKey.instance += 0x400; // Highest zoom level
-        LOG_DEBUG("Using zoom 5 S3D instance: 0x{:08X}", s3dKey.instance);
+        // Calculate S3D instance offset based on zoom and rotation
+        // Pattern from SC4: instance = base + (zoom-1)*0x100 + rotation*0x10
+        // Zoom: 1-5 (1=farthest, 5=closest)
+        // Rotation: 0-3 (S, E, N, W cardinal directions)
+        uint32_t baseInstance = s3dKey.instance;
+        uint32_t zoomOffset = (s3dZoomLevel - 1) * 0x100;
+        uint32_t rotationOffset = s3dRotation * 0x10;
+        s3dKey.instance = baseInstance + zoomOffset + rotationOffset;
 
+        LOG_INFO("Loading S3D: base=0x{:08X}, zoom={} (+0x{:03X}), rot={} (+0x{:02X}), final=0x{:08X}",
+                 baseInstance, s3dZoomLevel, zoomOffset, s3dRotation, rotationOffset, s3dKey.instance);
+
+    	// Uncomment to try a True3D network model
+    	// s3dKey.type = 0x5ad0e817;
+    	// s3dKey.group = 0xbadb57f1;
+    	// s3dKey.instance = 0x5dac0004;
         cIGZPersistDBRecord* pRecord = nullptr;
         if (!pRM->OpenDBRecord(s3dKey, &pRecord, false)) {
             LOG_ERROR("Failed to open S3D record - TGI may not exist: {:08x}-{:08x}-{:08x}",
@@ -1256,6 +1271,37 @@ void AdvancedLotPlopDllDirector::RenderS3DThumbnailWindow() {
         ImGui::Text("Group:    0xc977c536");
         ImGui::Text("Instance: 0x1d830000");
         ImGui::Separator();
+
+        // Zoom and Rotation controls
+        if (s3dRenderer) {
+            ImGui::Text("View Controls:");
+
+            int previousZoom = s3dZoomLevel;
+            int previousRotation = s3dRotation;
+
+            // SC4 zoom levels: 1 (farthest) to 5 (closest)
+            ImGui::SliderInt("Zoom Level", &s3dZoomLevel, 1, 5);
+            ImGui::SameLine();
+            ImGui::TextDisabled("(?)");
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("SC4 zoom levels: 1 = farthest, 5 = closest");
+            }
+
+            // SC4 rotations: 0-3 (cardinal directions: S, E, N, W)
+            const char* rotationNames[] = { "South", "East", "North", "West" };
+            ImGui::SliderInt("Rotation", &s3dRotation, 0, 3);
+            ImGui::SameLine();
+            ImGui::Text("(%s)", rotationNames[s3dRotation]);
+
+            // Reload S3D if zoom or rotation changed
+            if (previousZoom != s3dZoomLevel || previousRotation != s3dRotation) {
+                LOG_INFO("Reloading S3D with zoom={}, rotation={}", s3dZoomLevel, s3dRotation);
+                s3dThumbnailGenerated = false;  // Trigger reload
+                GenerateS3DThumbnail(D3D11Hook::GetDevice(), D3D11Hook::GetContext());
+            }
+
+            ImGui::Separator();
+        }
 
         // Debug visualization mode selector
         if (s3dRenderer) {

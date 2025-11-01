@@ -1,8 +1,6 @@
-// ...new file...
 #include "D3D11Hook.h"
 #include "Logger.h"
-#include "../vendor/imgui/imgui.h"
-#include "../vendor/imgui/imgui_impl_win32.h"
+#include "imgui.h"
 
 // Forward declaration for ImGui Win32 WndProc handler
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
@@ -30,7 +28,7 @@ bool D3D11Hook::Initialize(HWND hGameWindow) {
 
     s_hWnd = hGameWindow;
     LOG_INFO("D3D11Hook: Initializing with game window: 0x{:X}", reinterpret_cast<uintptr_t>(s_hWnd));
-    
+
     if (InstallPresentHook(hGameWindow)) {
         return InstallWndProcHook();
     }

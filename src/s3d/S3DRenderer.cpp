@@ -298,7 +298,7 @@ bool Renderer::CreateMaterials(const Model& model, cIGZPersistResourceManager* p
 			samplerDesc.MaxLOD = D3D11_FLOAT32_MAX;
 
 			LOG_DEBUG("    Created sampler: Filter={}, AddressU={}, AddressV={}",
-				samplerDesc.Filter, samplerDesc.AddressU, samplerDesc.AddressV);
+				int(samplerDesc.Filter), int(samplerDesc.AddressU), int(samplerDesc.AddressV));
 
 			HRESULT hr = m_device->CreateSamplerState(&samplerDesc, &gpuMat->samplerState);
 			if (FAILED(hr)) {
@@ -327,8 +327,8 @@ bool Renderer::CreateMaterials(const Model& model, cIGZPersistResourceManager* p
 			blendDesc.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
 
 			LOG_DEBUG("  Blend: srcBlend=0x{:02X} → {}, dstBlend=0x{:02X} → {}",
-				mat.srcBlend, blendDesc.RenderTarget[0].SrcBlend,
-				mat.dstBlend, blendDesc.RenderTarget[0].DestBlend);
+				int(mat.srcBlend), int(blendDesc.RenderTarget[0].SrcBlend),
+				int(mat.dstBlend), int(blendDesc.RenderTarget[0].DestBlend));
 		} else {
 			LOG_DEBUG("  Blend: disabled");
 		}
@@ -346,10 +346,10 @@ bool Renderer::CreateMaterials(const Model& model, cIGZPersistResourceManager* p
 		dsDesc.DepthWriteMask = (mat.flags & MAT_DEPTH_WRITE) ? D3D11_DEPTH_WRITE_MASK_ALL : D3D11_DEPTH_WRITE_MASK_ZERO;
 		dsDesc.DepthFunc = EnumMappings::MapComparisonFunc(mat.depthFunc);
 
-		LOG_DEBUG("  Depth: test={}, write={}, func=0x{:02X} → {}",
+		LOG_DEBUG("  Depth: test={}, write={}, func=0x{:02X}",
 			dsDesc.DepthEnable ? "YES" : "NO",
 			(dsDesc.DepthWriteMask == D3D11_DEPTH_WRITE_MASK_ALL) ? "YES" : "NO",
-			mat.depthFunc, dsDesc.DepthFunc);
+			mat.depthFunc);
 
 		hr = m_device->CreateDepthStencilState(&dsDesc, &gpuMat->depthState);
 		if (FAILED(hr)) {
@@ -539,8 +539,8 @@ DirectX::SimpleMath::Matrix Renderer::CalculateViewProjMatrix() const
 
 	LOG_DEBUG("  Building projection matrix (orthographic LH, near={:.1f}, far={:.1f})...",
 		RenderConstants::NEAR_PLANE, RenderConstants::FAR_PLANE);
-	Matrix proj = Matrix::CreateOrthographicLH(diff, diff,
-		RenderConstants::NEAR_PLANE, RenderConstants::FAR_PLANE);
+	Matrix proj = Matrix(XMMatrixOrthographicLH(diff, diff,
+		RenderConstants::NEAR_PLANE, RenderConstants::FAR_PLANE));
 	Matrix viewProj = view * proj;
 
 	LOG_DEBUG("  ViewProj matrix computed:");

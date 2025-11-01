@@ -33,12 +33,10 @@
 #include "cRZAutoRefCount.h"
 #include "cRZMessage2COMDirector.h"
 #include "GZServPtrs.h"
-#include "args.hxx"
 #include <windows.h>
-#include "../vendor/imgui/imgui_impl_win32.h"
-#include "../vendor/imgui/imgui_impl_dx11.h"
+#include "imgui_impl_win32.h"
+#include "imgui_impl_dx11.h"
 #include <d3d11.h>
-
 #include "cGZPersistResourceKey.h"
 #include "cIGZPersistResourceManager.h"
 #include "cIGZWinKeyAcceleratorRes.h"
@@ -64,13 +62,11 @@
 #include "s3d/S3DRenderer.h"
 #include <future>
 #include <deque>
-#include <fstream>
-#include <sstream>
 #include <string>
 
 #include "cIGZPersistDBRecord.h"
-#include "cIGZPersistDBSegment.h"
 #include "cIGZPersistResourceKeyList.h"
+#include "SC4HashSet.h"
 
 class AdvancedLotPlopDllDirector;
 static constexpr uint32_t kMessageCheatIssued = 0x230E27AC;

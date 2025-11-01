@@ -1,6 +1,6 @@
+#define NOMINMAX
 #include "S3DReader.h"
 #include "../utils/Logger.h"
-#include <cstring>
 #include <algorithm>
 
 namespace S3D {

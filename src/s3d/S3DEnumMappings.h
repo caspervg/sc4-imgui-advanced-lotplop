@@ -67,8 +67,6 @@ inline D3D11_COMPARISON_FUNC MapComparisonFunc(uint8_t glFunc) {
 // Convert OpenGL blend factor to D3D11
 inline D3D11_BLEND MapBlendFactor(uint8_t glBlend) {
 	switch (glBlend) {
-		case GL_ZERO:                return D3D11_BLEND_ZERO;
-		case GL_ONE:                 return D3D11_BLEND_ONE;
 		case GL_SRC_COLOR:           return D3D11_BLEND_SRC_COLOR;
 		case GL_ONE_MINUS_SRC_COLOR: return D3D11_BLEND_INV_SRC_COLOR;
 		case GL_SRC_ALPHA:           return D3D11_BLEND_SRC_ALPHA;

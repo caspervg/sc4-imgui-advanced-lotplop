@@ -41,7 +41,7 @@ bool Decompressor::Decompress(const uint8_t* input, size_t inputSize, std::vecto
 	// Compression type (input[5])
 	uint8_t compressionType = input[5];
 
-	LOG_DEBUG("QFS: Decompressing {} bytes -> {} bytes, type={}",
+	LOG_TRACE("QFS: Decompressing {} bytes -> {} bytes, type={}",
 	          inputSize, uncompressedSize, compressionType);
 
 	// Allocate output buffer
@@ -137,7 +137,7 @@ bool Decompressor::DecompressInternal(const uint8_t* input, size_t inputSize,
 		}
 	}
 
-	// Check if we filled the output buffer completely
+	// Check if we filled the output buffer
 	if (outPtr != outEnd) {
 		LOG_WARN("QFS: Output size mismatch: expected {}, got {}",
 		         outputSize, outPtr - output);

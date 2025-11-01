@@ -57,7 +57,6 @@
 #include "utils/Logger.h"
 #include "s3d/S3DReader.h"
 #include "s3d/S3DRenderer.h"
-#include <future>
 #include <deque>
 #include "cIGZPersistDBRecord.h"
 #include "cISCProperty.h"
@@ -240,6 +239,14 @@ public:
         // Unregister our shortcut notifications
         UnregisterToggleShortcut();
 
+        // Cancel any pending incremental cache build
+        if (isCacheBuilding) {
+            LOG_INFO("Cancelling incremental cache build during city shutdown");
+            isCacheBuilding = false;
+            cacheBuildPhase = CacheBuildPhase::NotStarted;
+            mUI.ShowLoadingWindow(false);
+        }
+
         lotCacheManager.Clear();
 
         // Ensure UI no longer references city resources during shutdown
@@ -254,23 +261,59 @@ public:
     }
 
     void Update() {
-        // Handle pending cache build (deferred to allow loading window to render first)
-        if (pendingCacheBuild) {
-            pendingCacheBuild = false;
+        if (!isCacheBuilding) return;
 
-            cIGZPersistResourceManagerPtr pRM;
-            ID3D11Device* pDevice = D3D11Hook::GetDevice();
+        switch (cacheBuildPhase) {
+            case CacheBuildPhase::BuildingExemplarCache: {
+                // Build exemplar cache synchronously (fast operation)
+                LOG_INFO("Building exemplar cache...");
+                cIGZPersistResourceManagerPtr pRM;
+                lotCacheManager.BeginIncrementalBuild();
+                lotCacheManager.BuildExemplarCacheSync(pRM);
 
-            auto progressCallback = [](const char* stage, int current, int total) {
-                if (GetLotPlopDirector()) {
-                    GetLotPlopDirector()->UpdateLoadingProgress(stage, current, total);
+                // Move to next phase
+                cacheBuildPhase = CacheBuildPhase::BuildingLotConfigCache;
+                lotCacheManager.BeginLotConfigProcessing(pCity);
+                LOG_INFO("Exemplar cache complete, starting lot config processing");
+                break;
+            }
+
+            case CacheBuildPhase::BuildingLotConfigCache: {
+                // Process lots incrementally (20 per frame)
+                constexpr int LOTS_PER_FRAME = 20;
+
+                cIGZPersistResourceManagerPtr pRM;
+                ID3D11Device* pDevice = D3D11Hook::GetDevice();
+
+                int processed = lotCacheManager.ProcessLotConfigBatch(pRM, pDevice, LOTS_PER_FRAME);
+
+                // Update progress
+                int current = lotCacheManager.GetProcessedLotCount();
+                int total = lotCacheManager.GetTotalLotCount();
+                mUI.SetLoadingProgress("Processing lot configurations...", current, total);
+
+                // Check if complete
+                if (lotCacheManager.IsLotConfigProcessingComplete()) {
+                    cacheBuildPhase = CacheBuildPhase::Complete;
+                    LOG_INFO("Lot config processing complete");
                 }
-            };
+                break;
+            }
 
-            lotCacheManager.BuildCache(pCity, pRM, pDevice, progressCallback);
-            mUI.ShowLoadingWindow(false);
-            // Now that the cache is ready, immediately refresh the filtered list
-            RefreshLotList();
+            case CacheBuildPhase::Complete: {
+                // Finalize cache build
+                lotCacheManager.FinalizeIncrementalBuild();
+                isCacheBuilding = false;
+                mUI.ShowLoadingWindow(false);
+                cacheBuildPhase = CacheBuildPhase::NotStarted;
+
+                LOG_INFO("Incremental cache build completed");
+                RefreshLotList();
+                break;
+            }
+
+            default:
+                break;
         }
     }
 
@@ -299,7 +342,16 @@ private:
     std::vector<LotConfigEntry> lotEntries;
 
     bool imGuiInitialized = false;
-    bool pendingCacheBuild = false;
+
+    // Incremental cache building
+    bool isCacheBuilding = false;
+    enum class CacheBuildPhase {
+        NotStarted,
+        BuildingExemplarCache,
+        BuildingLotConfigCache,
+        Complete
+    };
+    CacheBuildPhase cacheBuildPhase = CacheBuildPhase::NotStarted;
 
 	// S3D thumbnail proof-of-concept
 	bool showS3DThumbnail = true;
@@ -339,9 +391,16 @@ private:
     }
 
     void BuildCache() {
+        if (isCacheBuilding) {
+            LOG_WARN("Cache build already in progress, ignoring request");
+            return;
+        }
+
+        LOG_INFO("Starting async cache build");
         mUI.ShowLoadingWindow(true);
         mUI.SetLoadingProgress("Initializing...", 0, 0);
-        pendingCacheBuild = true;
+        isCacheBuilding = true;
+        cacheBuildPhase = CacheBuildPhase::BuildingExemplarCache;
     }
 
     void UpdateLoadingProgress(const char* stage, int current, int total) {
@@ -518,14 +577,9 @@ void AdvancedLotPlopDllDirector::GenerateS3DThumbnail(ID3D11Device *device, ID3D
 
     LOG_INFO("Generating S3D thumbnail proof-of-concept...");
 
-    // Test prop: T=0x6534284a, G=0xc977c536, I=0x1d830000
     constexpr uint32_t EXEMPLAR_TYPE = 0x6534284a;
-    // constexpr uint32_t S3D_GROUP = 0xf38748f8;
-    // constexpr uint32_t S3D_INSTANCE = 0x0445bb45;
     constexpr uint32_t EXEMPLAR_GROUP = 0x13a0bd51;
     constexpr uint32_t EXEMPLAR_ISNTANCE = 0xd6136b79;
-	// constexpr uint32_t S3D_GROUP = 0x9dd7f9c4;
-	// constexpr uint32_t S3D_INSTANCE = 0x5f9944bd;
 
     try {
         cIGZPersistResourceManagerPtr pRM;
@@ -619,7 +673,7 @@ void AdvancedLotPlopDllDirector::GenerateS3DThumbnail(ID3D11Device *device, ID3D
             return;
         }
 
-        LOG_INFO("S3D model parsed successfully: {} meshes, {} frames",
+        LOG_TRACE("S3D model parsed successfully: {} meshes, {} frames",
                  model.animation.animatedMeshes.size(), model.animation.frameCount);
 
         // Create renderer
@@ -635,7 +689,7 @@ void AdvancedLotPlopDllDirector::GenerateS3DThumbnail(ID3D11Device *device, ID3D
         // Generate thumbnail
         s3dThumbnailSRV = s3dRenderer->GenerateThumbnail(256);
         if (s3dThumbnailSRV) {
-            LOG_INFO("S3D thumbnail generated successfully!");
+            LOG_TRACE("S3D thumbnail generated successfully!");
             s3dThumbnailGenerated = true;
         } else {
             LOG_ERROR("Failed to generate S3D thumbnail");
@@ -652,13 +706,7 @@ void AdvancedLotPlopDllDirector::RenderS3DThumbnailWindow() {
         return;
     }
 
-    if (ImGui::Begin("S3D Thumbnail Proof-of-Concept", &showS3DThumbnail)) {
-        ImGui::Text("Testing S3D rendering with prop:");
-        ImGui::Text("Type:     0x6534284a");
-        ImGui::Text("Group:    0xc977c536");
-        ImGui::Text("Instance: 0x1d830000");
-        ImGui::Separator();
-
+    if (ImGui::Begin("S3D Thumbnail", &showS3DThumbnail)) {
         // Zoom and Rotation controls
         if (s3dRenderer) {
             ImGui::Text("View Controls:");
@@ -668,11 +716,6 @@ void AdvancedLotPlopDllDirector::RenderS3DThumbnailWindow() {
 
             // SC4 zoom levels: 1 (farthest) to 5 (closest)
             ImGui::SliderInt("Zoom Level", &s3dZoomLevel, 1, 5);
-            ImGui::SameLine();
-            ImGui::TextDisabled("(?)");
-            if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("SC4 zoom levels: 1 = farthest, 5 = closest");
-            }
 
             // SC4 rotations: 0-3 (cardinal directions: S, E, N, W)
             const char* rotationNames[] = { "South", "East", "North", "West" };
@@ -692,7 +735,7 @@ void AdvancedLotPlopDllDirector::RenderS3DThumbnailWindow() {
 
         // Debug visualization mode selector
         if (s3dRenderer) {
-            ImGui::Text("Debug Visualization Mode:");
+            ImGui::Text("Debug mode:");
 
             static int currentDebugMode = 0; // 0=Normal, 1=Wireframe, etc.
             const char* debugModeNames[] = {
@@ -701,7 +744,6 @@ void AdvancedLotPlopDllDirector::RenderS3DThumbnailWindow() {
                 "UV Coordinates",
                 "Vertex Color Only",
                 "Material ID",
-                "Normals (N/A)",
                 "Texture Only",
                 "Alpha Test Visualization"
             };
@@ -743,7 +785,7 @@ void AdvancedLotPlopDllDirector::RenderS3DThumbnailWindow() {
 
         if (s3dThumbnailSRV) {
             ImGui::Text("Thumbnail generated:");
-            ImGui::Image((ImTextureID) s3dThumbnailSRV, ImVec2(256, 256));
+            ImGui::Image(s3dThumbnailSRV, ImVec2(256, 256));
         } else if (s3dThumbnailGenerated) {
             ImGui::Text("Failed to generate thumbnail");
         } else {

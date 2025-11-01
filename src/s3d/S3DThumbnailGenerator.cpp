@@ -227,7 +227,7 @@ ID3D11ShaderResourceView* ThumbnailGenerator::GenerateThumbnailFromExemplar(
             int index = 2 + (clampedZoom - 1) * 4 + clampedRot;
             if (index < static_cast<int>(val->GetCount())) {
                 finalInstance = vals[index];
-                LOG_DEBUG("S3D thumbnail: RKT2 - zoom={}, rot={}, index={}, instance=0x{:08X}",
+                LOG_TRACE("S3D thumbnail: RKT2 - zoom={}, rot={}, index={}, instance=0x{:08X}",
                           clampedZoom, clampedRot, index, finalInstance);
             }
         }
@@ -243,7 +243,7 @@ ID3D11ShaderResourceView* ThumbnailGenerator::GenerateThumbnailFromExemplar(
             int index = 2 + (clampedZoom - 1);
             if (index < static_cast<int>(val->GetCount())) {
                 finalInstance = vals[index];
-                LOG_DEBUG("S3D thumbnail: RKT3 - zoom={}, index={}, instance=0x{:08X}",
+                LOG_TRACE("S3D thumbnail: RKT3 - zoom={}, index={}, instance=0x{:08X}",
                           clampedZoom, index, finalInstance);
             }
         }
@@ -251,7 +251,7 @@ ID3D11ShaderResourceView* ThumbnailGenerator::GenerateThumbnailFromExemplar(
     else if ((rktProp = pBuildingExemplar->GetProperty(kResourceKeyType5)) != nullptr) {
         // RKT5: Similar to RKT1 (calculate instance with zoom/rotation)
         finalInstance = CalculateS3DInstance(baseInstance, zoomLevel, rotation);
-        LOG_DEBUG("S3D thumbnail: RKT5 - base=0x{:08X}, zoom={}, rot={}, final=0x{:08X}",
+        LOG_TRACE("S3D thumbnail: RKT5 - base=0x{:08X}, zoom={}, rot={}, final=0x{:08X}",
                   baseInstance, zoomLevel, rotation, finalInstance);
     }
 
@@ -289,7 +289,7 @@ ID3D11ShaderResourceView* ThumbnailGenerator::GenerateThumbnailFromExemplar(
         return nullptr;
     }
 
-    LOG_DEBUG("S3D thumbnail: Model parsed - {} meshes, {} frames",
+    LOG_TRACE("S3D thumbnail: Model parsed - {} meshes, {} frames",
               model.animation.animatedMeshes.size(), model.animation.frameCount);
 
     // Create renderer

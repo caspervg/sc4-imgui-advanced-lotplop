@@ -21,6 +21,7 @@
 #pragma once
 #include <unordered_map>
 #include <vector>
+#include <functional>
 
 #include "cISCPropertyHolder.h"
 #include "cRZAutoRefCount.h"
@@ -31,7 +32,8 @@ class cIGZPersistResourceManager;
 struct ID3D11Device;
 
 // Progress callback: stage description, current progress, total steps
-typedef void (*LotCacheProgressCallback)(const char* stage, int current, int total);
+using LotCacheProgressCallback = std::function<void(const char* stage, int current, int total)>;
+constexpr uint8_t kThumbnailSize = 44;
 
 /**
  * Manages the lot configuration cache, including exemplar loading and icon processing.
@@ -43,6 +45,18 @@ public:
 
     // Build the complete cache
     void BuildCache(cISC4City* pCity, cIGZPersistResourceManager* pRM, ID3D11Device* pDevice, LotCacheProgressCallback progressCallback = nullptr);
+
+    // Incremental cache building
+    void BeginIncrementalBuild();
+    void BuildExemplarCacheSync(cIGZPersistResourceManager* pRM);
+    void BeginLotConfigProcessing(cISC4City* pCity);
+    int ProcessLotConfigBatch(cIGZPersistResourceManager* pRM, ID3D11Device* pDevice, int maxLotsToProcess);
+    void FinalizeIncrementalBuild();
+
+    // Incremental build progress
+    int GetProcessedLotCount() const { return processedLotCount; }
+    int GetTotalLotCount() const { return totalLotCount; }
+    bool IsLotConfigProcessingComplete() const { return processedLotCount >= totalLotCount; }
 
     // Clear all cached data
     void Clear();
@@ -74,4 +88,11 @@ private:
     std::unordered_map<uint32_t, LotConfigEntry> lotConfigCache;
     std::unordered_map<uint32_t, std::vector<std::pair<uint32_t, cRZAutoRefCount<cISCPropertyHolder>>>> exemplarCache;
     bool cacheInitialized;
+
+    // Incremental processing state
+    std::vector<std::pair<uint32_t, uint32_t>> lotSizesToProcess; // Pairs of (x, z)
+    size_t currentLotSizeIndex;
+    int processedLotCount;
+    int totalLotCount;
+    cISC4City* pCityForIncremental;
 };

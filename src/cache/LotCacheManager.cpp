@@ -42,7 +42,11 @@
 #include "../utils/Logger.h"
 
 LotCacheManager::LotCacheManager()
-    : cacheInitialized(false) {
+    : cacheInitialized(false),
+      currentLotSizeIndex(0),
+      processedLotCount(0),
+      totalLotCount(0),
+      pCityForIncremental(nullptr) {
 }
 
 LotCacheManager::~LotCacheManager() {
@@ -302,4 +306,228 @@ bool LotCacheManager::GetCachedExemplarByType(
         }
     }
     return false;
+}
+
+// Incremental cache building methods
+
+void LotCacheManager::BeginIncrementalBuild() {
+    exemplarCache.clear();
+    lotConfigCache.clear();
+    lotSizesToProcess.clear();
+    currentLotSizeIndex = 0;
+    processedLotCount = 0;
+    totalLotCount = 0;
+    pCityForIncremental = nullptr;
+    cacheInitialized = false;
+}
+
+void LotCacheManager::BuildExemplarCacheSync(cIGZPersistResourceManager* pRM) {
+    if (!exemplarCache.empty()) return;
+
+    LOG_INFO("Building exemplar cache (sync)...");
+
+    if (!pRM) return;
+
+    constexpr uint32_t kExemplarType = 0x6534284A;
+
+    cRZAutoRefCount<cIGZPersistResourceKeyList> pKeyList;
+    uint32_t totalCount = pRM->GetAvailableResourceList(pKeyList.AsPPObj(), nullptr);
+
+    if (totalCount == 0 || !pKeyList) {
+        LOG_WARN("Failed to enumerate resources for exemplar cache");
+        return;
+    }
+
+    LOG_INFO("Filtering {} resources for exemplars...", totalCount);
+
+    uint32_t exemplarCount = 0;
+    uint32_t keyListSize = pKeyList->Size();
+    for (uint32_t i = 0; i < keyListSize; i++) {
+        cGZPersistResourceKey key = pKeyList->GetKey(i);
+
+        // Only cache exemplars
+        if (key.type != kExemplarType) continue;
+
+        cRZAutoRefCount<cISCPropertyHolder> exemplar;
+        if (pRM->GetResource(key, GZIID_cISCPropertyHolder, exemplar.AsPPVoid(), 0, nullptr)) {
+            exemplarCache[key.instance].emplace_back(key.group, exemplar);
+            exemplarCount++;
+        }
+    }
+
+    LOG_INFO("Exemplar cache built: {} exemplars across {} unique instance IDs", exemplarCount, exemplarCache.size());
+}
+
+void LotCacheManager::BeginLotConfigProcessing(cISC4City* pCity) {
+    pCityForIncremental = pCity;
+
+    // Build list of lot sizes to process
+    lotSizesToProcess.clear();
+    for (uint32_t x = 1; x <= 16; x++) {
+        for (uint32_t z = 1; z <= 16; z++) {
+            lotSizesToProcess.push_back({x, z});
+        }
+    }
+
+    currentLotSizeIndex = 0;
+    processedLotCount = 0;
+    totalLotCount = static_cast<int>(lotSizesToProcess.size());
+
+    lotConfigCache.reserve(2048);
+}
+
+int LotCacheManager::ProcessLotConfigBatch(cIGZPersistResourceManager* pRM, ID3D11Device* pDevice, int maxLotsToProcess) {
+    if (!pCityForIncremental || !pRM) return 0;
+
+    cISC4LotConfigurationManager* pLotConfigMgr = pCityForIncremental->GetLotConfigurationManager();
+    if (!pLotConfigMgr) return 0;
+
+    constexpr uint32_t kPropertyExemplarType = 0x00000010;
+    constexpr uint32_t kPropertyExemplarTypeBuilding = 0x00000002;
+
+    SC4HashSet<uint32_t> configIdTable{};
+    configIdTable.Init(256);
+
+    int processedThisBatch = 0;
+
+    // Process lots by size, but limit to maxLotsToProcess individual lots per batch
+    while (currentLotSizeIndex < lotSizesToProcess.size() && processedThisBatch < maxLotsToProcess) {
+        const auto& [x, z] = lotSizesToProcess[currentLotSizeIndex];
+
+        bool finishedThisSize = true; // Track if we finished processing all new lots in this size
+
+        if (pLotConfigMgr->GetLotConfigurationIDsBySize(configIdTable, x, z)) {
+            for (const auto it : configIdTable) {
+                // Check if we've hit the batch limit before processing this lot
+                if (processedThisBatch >= maxLotsToProcess) {
+                    finishedThisSize = false;
+                    break;
+                }
+
+                uint32_t lotConfigID = it->key;
+
+                if (lotConfigCache.count(lotConfigID)) continue;
+
+                cISC4LotConfiguration* pConfig = pLotConfigMgr->GetLotConfiguration(lotConfigID);
+                if (!pConfig) continue;
+
+                LotConfigEntry entry;
+                entry.id = lotConfigID;
+
+                cRZAutoRefCount<cISCPropertyHolder> pLotExemplar;
+                if (GetCachedExemplar(lotConfigID, pLotExemplar)) {
+                    uint32_t buildingExemplarID = 0;
+                    if (GetLotBuildingExemplarID(pLotExemplar, buildingExemplarID)) {
+                        cRZAutoRefCount<cISCPropertyHolder> pBuildingExemplar;
+                        if (GetCachedExemplarByType(
+                            buildingExemplarID,
+                            kPropertyExemplarType,
+                            kPropertyExemplarTypeBuilding,
+                            pBuildingExemplar
+                        )) {
+                            // Get display name
+                            cRZBaseString displayName;
+                            if (PropertyUtil::GetDisplayName(pBuildingExemplar, displayName)) {
+                                cRZBaseString techName;
+                                pConfig->GetName(techName);
+                                entry.name.reserve(displayName.Strlen() + techName.Strlen() + 3);
+                                entry.name = displayName.Data();
+                                entry.name += " (";
+                                entry.name += techName.Data();
+                                entry.name += ")";
+                            }
+
+                            // Load icon immediately
+                            uint32_t iconInstance = 0;
+                            if (ExemplarUtil::GetItemIconInstance(pBuildingExemplar, iconInstance)) {
+                                entry.iconInstance = iconInstance;
+
+                                if (pDevice) {
+                                    ID3D11ShaderResourceView* srv = nullptr;
+                                    int w = 0, h = 0;
+                                    if (IconLoader::LoadIconFromPNG(pRM, iconInstance, pDevice, &srv, &w, &h)) {
+                                        entry.iconSRV = srv;
+                                        entry.iconWidth = w;
+                                        entry.iconHeight = h;
+                                        entry.iconType = LotConfigEntry::IconType::PNG;
+                                    }
+                                }
+                            }
+
+                            // If no PNG icon loaded, try S3D thumbnail as fallback
+                            if (entry.iconType == LotConfigEntry::IconType::None && pDevice) {
+                                ID3D11DeviceContext* pContext = nullptr;
+                                pDevice->GetImmediateContext(&pContext);
+
+
+                                if (pContext) {
+                                    ID3D11ShaderResourceView* s3dSRV = S3D::ThumbnailGenerator::GenerateThumbnailFromExemplar(
+                                        pBuildingExemplar, pRM, pDevice, pContext, kThumbnailSize, 5, 0
+                                    );
+
+                                    if (s3dSRV) {
+                                        entry.iconSRV = s3dSRV;
+                                        entry.iconWidth = kThumbnailSize;
+                                        entry.iconHeight = kThumbnailSize;
+                                        entry.iconType = LotConfigEntry::IconType::S3D;
+                                        LOG_DEBUG("Generated S3D thumbnail for lot 0x{:08X} ({})", lotConfigID, entry.name);
+                                    }
+
+                                    pContext->Release();
+                                }
+                            }
+
+                            // Occupant groups
+                            constexpr uint32_t kOccupantGroupProperty = 0xAA1DD396;
+                            const cISCProperty* prop = pBuildingExemplar->GetProperty(kOccupantGroupProperty);
+                            if (prop) {
+                                const cIGZVariant* val = prop->GetPropertyValue();
+                                if (val && val->GetType() == cIGZVariant::Type::Uint32Array) {
+                                    uint32_t count = val->GetCount();
+                                    const uint32_t* pVals = val->RefUint32();
+                                    if (pVals && count > 0) {
+                                        for (uint32_t i = 0; i < count; ++i) {
+                                            entry.occupantGroups.insert(pVals[i]);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Fallback to technical name
+                if (entry.name.empty()) {
+                    cRZBaseString techName;
+                    if (pConfig->GetName(techName)) {
+                        entry.name = techName.Data();
+                    }
+                }
+
+                pConfig->GetSize(entry.sizeX, entry.sizeZ);
+                entry.minCapacity = pConfig->GetMinBuildingCapacity();
+                entry.maxCapacity = pConfig->GetMaxBuildingCapacity();
+                entry.growthStage = pConfig->GetGrowthStage();
+
+                lotConfigCache[lotConfigID] = entry;
+
+                // Increment per individual lot, not per lot size
+                processedThisBatch++;
+            }
+        }
+
+        // Only advance to next size if we finished processing all new lots in current size
+        if (finishedThisSize) {
+            currentLotSizeIndex++;
+            processedLotCount++;
+        }
+    }
+
+    return processedThisBatch;
+}
+
+void LotCacheManager::FinalizeIncrementalBuild() {
+    cacheInitialized = true;
+    pCityForIncremental = nullptr;
+    LOG_INFO("Incremental cache build finalized: {} lot entries", lotConfigCache.size());
 }

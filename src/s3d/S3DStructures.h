@@ -69,13 +69,14 @@ struct Material {
 	std::vector<MaterialTexture> textures;
 };
 
-// Material flags
-constexpr uint32_t MAT_ALPHA_TEST   = 0x01;
-constexpr uint32_t MAT_DEPTH_TEST   = 0x02;
-constexpr uint32_t MAT_DEPTH_WRITE  = 0x04;
-constexpr uint32_t MAT_FLAT_SHADE   = 0x08;
-constexpr uint32_t MAT_BLEND        = 0x10;
-constexpr uint32_t MAT_TEXTURE      = 0x20;
+// Material flags (based on S3D.scala reference)
+constexpr uint32_t MAT_ALPHA_TEST       = 0x01;  // bit 0
+constexpr uint32_t MAT_DEPTH_TEST       = 0x02;  // bit 1
+constexpr uint32_t MAT_BACKFACE_CULLING = 0x08;  // bit 3
+constexpr uint32_t MAT_BLEND            = 0x10;  // bit 4 (FrameBufferBlending)
+constexpr uint32_t MAT_TEXTURE          = 0x20;  // bit 5
+constexpr uint32_t MAT_COLOR_WRITES     = 0x40;  // bit 6
+constexpr uint32_t MAT_DEPTH_WRITES     = 0x80;  // bit 7
 
 // Animation frame - references which buffers to use
 struct Frame {

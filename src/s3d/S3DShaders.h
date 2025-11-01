@@ -34,8 +34,8 @@ PS_INPUT main(VS_INPUT input)
     // Use column-vector multiplication (standard for DirectX)
     output.position = mul(viewProj, float4(input.position, 1.0));
     output.color = input.color;
-    // Fix UV V-coordinate flip (SC4 uses top-origin, D3D11 uses bottom-origin)
-    output.uv = float2(input.uv.x, 1.0 - input.uv.y);
+    // Pass UVs through as-is
+    output.uv = input.uv;
     return output;
 }
 )";

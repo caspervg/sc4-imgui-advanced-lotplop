@@ -251,14 +251,14 @@ bool Renderer::CreateMaterials(const Model& model, cIGZPersistResourceManager* p
 		const auto& mat = model.materials[matIdx];
 		auto gpuMat = std::make_unique<GPUMaterial>();
 
-		LOG_DEBUG("Material {}: flags=0x{:08X} (ALPHA_TEST={}, DEPTH_TEST={}, DEPTH_WRITE={}, FLAT_SHADE={}, BLEND={}, TEXTURE={})",
+		LOG_DEBUG("Material {}: flags=0x{:08X} (ALPHA_TEST={}, DEPTH_TEST={}, BACKFACE_CULL={}, BLEND={}, TEXTURE={}, DEPTH_WRITES={})",
 			matIdx, mat.flags,
 			(mat.flags & MAT_ALPHA_TEST) ? "YES" : "NO",
 			(mat.flags & MAT_DEPTH_TEST) ? "YES" : "NO",
-			(mat.flags & MAT_DEPTH_WRITE) ? "YES" : "NO",
-			(mat.flags & MAT_FLAT_SHADE) ? "YES" : "NO",
+			(mat.flags & MAT_BACKFACE_CULLING) ? "YES" : "NO",
 			(mat.flags & MAT_BLEND) ? "YES" : "NO",
-			(mat.flags & MAT_TEXTURE) ? "YES" : "NO");
+			(mat.flags & MAT_TEXTURE) ? "YES" : "NO",
+			(mat.flags & MAT_DEPTH_WRITES) ? "YES" : "NO");
 
 		gpuMat->alphaThreshold = mat.alphaThreshold;
 		gpuMat->hasTexture = (mat.flags & MAT_TEXTURE) && !mat.textures.empty();
@@ -359,7 +359,7 @@ bool Renderer::CreateMaterials(const Model& model, cIGZPersistResourceManager* p
 		// Create depth stencil state using material's depth function
 		D3D11_DEPTH_STENCIL_DESC dsDesc = {};
 		dsDesc.DepthEnable = (mat.flags & MAT_DEPTH_TEST) ? TRUE : FALSE;
-		dsDesc.DepthWriteMask = (mat.flags & MAT_DEPTH_WRITE) ? D3D11_DEPTH_WRITE_MASK_ALL : D3D11_DEPTH_WRITE_MASK_ZERO;
+		dsDesc.DepthWriteMask = (mat.flags & MAT_DEPTH_WRITES) ? D3D11_DEPTH_WRITE_MASK_ALL : D3D11_DEPTH_WRITE_MASK_ZERO;
 		dsDesc.DepthFunc = EnumMappings::MapComparisonFunc(mat.depthFunc);
 
 		LOG_DEBUG("  Depth: test={}, write={}, func=0x{:02X}",
@@ -541,18 +541,17 @@ DirectX::SimpleMath::Matrix Renderer::CalculateViewProjMatrix() const
 		diff, width, height, (padding - 1.0f) * 100.0f);
 	LOG_DEBUG("  View center: ({:.3f}, {:.3f}, {:.3f})", posx, posy, posz);
 
-	// View matrix following Python S3DViewer billboard approach:
-	// 1. Scale Z by -1 (glScalef(1,1,-1))
-	// 2. Translate to center
-	// 3. Rotate X by 45°
-	// 4. Rotate Y by -22.5°
-	LOG_DEBUG("  Building view matrix (billboard: Z-flip, translate, rotateX, rotateY)...");
+	// DirectX applies transformations left-to-right, OpenGL applies right-to-left
+	// To match Python OpenGL: RotateY -> RotateX -> Translate
+	LOG_DEBUG("  Building view matrix (billboard: rotateY, rotateX, translate)...");
 	Matrix view = Matrix::Identity;
-	view *= Matrix::CreateScale(1.0f, 1.0f, -1.0f);                    // Z-flip for billboard
-	view *= Matrix::CreateTranslation(-posx, -posy, -posz);            // Center model
-	view *= Matrix::CreateRotationX(XMConvertToRadians(rx_deg));       // Tilt down 45°
-	view *= Matrix::CreateRotationY(XMConvertToRadians(ry_deg));       // Rotate -22.5°
+	view *= Matrix::CreateRotationY(XMConvertToRadians(ry_deg));       // Rotate -22.5° (applied first to vertices)
+	view *= Matrix::CreateRotationX(XMConvertToRadians(rx_deg));       // Tilt down 45° (applied second)
+	view *= Matrix::CreateTranslation(-posx, -posy, -posz);            // Center model (applied last)
 
+	// Python OpenGL uses glOrtho(..., 40000, -40000) which creates a projection where
+	// the near plane is at -40000 and far at 40000 along the Z axis (after view transform)
+	// In DirectX LH, we need near < far, so we use symmetric range around 0
 	LOG_DEBUG("  Building projection matrix (orthographic LH, near={:.1f}, far={:.1f})...",
 		RenderConstants::NEAR_PLANE, RenderConstants::FAR_PLANE);
 	Matrix proj = Matrix(XMMatrixOrthographicLH(diff, diff,

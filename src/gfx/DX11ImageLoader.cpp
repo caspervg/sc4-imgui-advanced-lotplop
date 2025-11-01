@@ -1,4 +1,5 @@
 #include "DX11ImageLoader.h"
+
 #include <d3d11.h>
 #include <wincodec.h>
 #include <wil/com.h>

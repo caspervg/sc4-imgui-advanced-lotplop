@@ -1,7 +1,5 @@
 #pragma once
-
 #include <spdlog/spdlog.h>
-#include <spdlog/sinks/basic_file_sink.h>
 #include <memory>
 #include <string>
 
@@ -10,10 +8,11 @@ class Logger
 public:
     // Get the singleton instance
     static std::shared_ptr<spdlog::logger> Get();
-    
+
     // Initialize the logger (called once at startup)
-    static void Initialize(const std::string& logName = "UnknownDllMod");
-    
+    // If userDir is provided, logs will be written there; otherwise falls back to Documents\SimCity 4
+    static void Initialize(const std::string& logName = "UnknownDllMod", const std::string& userDir = "");
+
     // Shutdown the logger (called at exit)
     static void Shutdown();
 
@@ -21,7 +20,7 @@ private:
     static std::shared_ptr<spdlog::logger> s_logger;
     static std::string s_logName;
     static bool s_initialized;
-    
+
     Logger() = default;
     ~Logger() = default;
     Logger(const Logger&) = delete;

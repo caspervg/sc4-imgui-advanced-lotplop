@@ -1,5 +1,4 @@
 #pragma once
-#include <cstddef>
 #include <cstdint>
 
 struct ID3D11Device;

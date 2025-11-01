@@ -20,12 +20,10 @@
  */
 #pragma once
 
-#include "cRZAutoRefCount.h"
-#include "cISCPropertyHolder.h"
-#include "cIGZString.h"
 #include "cIGZPersistResourceManager.h"
-
-#include <cstdint>
+#include "cIGZString.h"
+#include "cISCPropertyHolder.h"
+#include "cRZAutoRefCount.h"
 
 /**
  * Retrieves an exemplar (property holder) by its instance ID.

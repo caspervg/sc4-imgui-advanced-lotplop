@@ -2,7 +2,6 @@
 #include "cIGZPersistResourceManager.h"
 #include "cGZPersistResourceKey.h"
 #include "cIGZPersistDBRecord.h"
-#include "cISCProperty.h"
 #include "SCPropertyUtil.h"
 
 namespace ExemplarUtil {

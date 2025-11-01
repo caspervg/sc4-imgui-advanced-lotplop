@@ -21,12 +21,13 @@
 // ReSharper disable CppDFAUnreachableCode
 // ReSharper disable CppDFAConstantFunctionResult
 #include "ExemplarUtil.h"
-#include "PropertyUtil.h"
-#include "SCPropertyUtil.h"
-#include "PersistResourceKeyFilterByInstance.h"
+
 #include "cIGZPersistResourceKeyList.h"
 #include "cIGZVariant.h"
 #include "cISCProperty.h"
+#include "PersistResourceKeyFilterByInstance.h"
+#include "PropertyUtil.h"
+#include "SCPropertyUtil.h"
 
 static constexpr uint32_t kPropertyLotObjectsStart = 0x88EDC900;
 static constexpr uint32_t kPropertyLotObjectsEnd = 0x88EDCDFF;

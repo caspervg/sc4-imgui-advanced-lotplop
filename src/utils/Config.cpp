@@ -1,7 +1,10 @@
 #include "Config.h"
+
+#include <mutex>
 #include <windows.h>
 #include <mINI/ini.h>
-#include <mutex>
+#include <sstream>
+#include <algorithm>
 
 namespace Config {
     static std::once_flag g_once;
@@ -9,6 +12,11 @@ namespace Config {
     static std::unordered_map<uint32_t, std::string>& GetGroupNamesMap() {
         static std::unordered_map<uint32_t, std::string> g_groupNames{};
         return g_groupNames;
+    }
+
+    static UIState& GetMutableUIState() {
+        static UIState state{}; // defaults already set
+        return state;
     }
 
     static std::string Trim(const std::string& s) {
@@ -33,6 +41,15 @@ namespace Config {
             }
         }
         return std::string(".");
+    }
+
+    static uint32_t ParseUInt(const std::string& s) {
+        std::string t = Trim(s);
+        if (t.empty()) return 0;
+        if (t.rfind("0x", 0) == 0 || t.rfind("0X", 0) == 0) {
+            return static_cast<uint32_t>(strtoul(t.c_str(), nullptr, 16));
+        }
+        return static_cast<uint32_t>(strtoul(t.c_str(), nullptr, 10));
     }
 
     static void LoadInternal() {
@@ -64,6 +81,37 @@ namespace Config {
                     }
                 }
             }
+            if (ini.has("UI")) {
+                auto& uiSec = ini["UI"];
+                UIState& st = GetMutableUIState();
+                if (uiSec.has("ZoneFilter")) st.zoneFilter = static_cast<uint8_t>(ParseUInt(uiSec["ZoneFilter"]));
+                if (uiSec.has("WealthFilter")) st.wealthFilter = static_cast<uint8_t>(ParseUInt(uiSec["WealthFilter"]));
+                if (uiSec.has("MinSizeX")) st.minSizeX = ParseUInt(uiSec["MinSizeX"]);
+                if (uiSec.has("MaxSizeX")) st.maxSizeX = ParseUInt(uiSec["MaxSizeX"]);
+                if (uiSec.has("MinSizeZ")) st.minSizeZ = ParseUInt(uiSec["MinSizeZ"]);
+                if (uiSec.has("MaxSizeZ")) st.maxSizeZ = ParseUInt(uiSec["MaxSizeZ"]);
+                if (uiSec.has("Search")) st.search = uiSec["Search"];
+                if (uiSec.has("SelectedLot")) st.selectedLotID = ParseUInt(uiSec["SelectedLot"]);
+                if (uiSec.has("SelectedGroups")) {
+                    st.selectedGroups.clear();
+                    std::string csv = uiSec["SelectedGroups"];
+                    std::istringstream iss(csv);
+                    std::string tok;
+                    while (std::getline(iss, tok, ',')) {
+                        uint32_t id = ParseUInt(tok);
+                        if (id) st.selectedGroups.push_back(id);
+                    }
+                }
+                if (uiSec.has("Favorites")) {
+                    st.favorites.clear();
+                    std::string csv = uiSec["Favorites"];
+                	std::istringstream iss(csv);
+                	std::string tok;
+                	while (std::getline(iss, tok, ','))
+                		{ uint32_t id = ParseUInt(tok); if (id) st.favorites.push_back(id); }
+                }
+                if (uiSec.has("FavoritesOnly")) st.favoritesOnly = (ParseUInt(uiSec["FavoritesOnly"]) != 0);
+            }
         }
 
         // Provide a few sensible defaults if none loaded
@@ -88,5 +136,41 @@ namespace Config {
     const std::unordered_map<uint32_t, std::string>& GetOccupantGroupNames() {
         LoadOnce();
         return GetGroupNamesMap();
+    }
+
+    const UIState& GetUIState() {
+        LoadOnce();
+        return GetMutableUIState();
+    }
+
+    void SaveUIState(const UIState& state) {
+        LoadOnce(); // ensure ini path resolution
+        std::string iniPath = GetModuleDir() + "\\SC4AdvancedLotPlop.ini";
+        mINI::INIFile file(iniPath);
+        mINI::INIStructure ini;
+        // Read existing to preserve other sections
+        file.read(ini);
+
+        auto& uiSec = ini["UI"]; // creates if missing
+        uiSec["ZoneFilter"] = std::to_string(state.zoneFilter);
+        uiSec["WealthFilter"] = std::to_string(state.wealthFilter);
+        uiSec["MinSizeX"] = std::to_string(state.minSizeX);
+        uiSec["MaxSizeX"] = std::to_string(state.maxSizeX);
+        uiSec["MinSizeZ"] = std::to_string(state.minSizeZ);
+        uiSec["MaxSizeZ"] = std::to_string(state.maxSizeZ);
+        uiSec["Search"] = state.search;
+        uiSec["SelectedLot"] = std::to_string(state.selectedLotID);
+        std::ostringstream oss;
+        for (size_t i=0;i<state.selectedGroups.size();++i){
+            if(i) oss << ",";
+            oss << "0x" << std::hex << std::uppercase << state.selectedGroups[i] << std::dec;
+        }
+        uiSec["SelectedGroups"] = oss.str();
+        std::ostringstream favoss; for (size_t i=0;i<state.favorites.size();++i){ if(i) favoss << ","; favoss << "0x" << std::hex << std::uppercase << state.favorites[i] << std::dec; }
+        uiSec["Favorites"] = favoss.str();
+        uiSec["FavoritesOnly"] = state.favoritesOnly ? "1" : "0";
+        // MRU persistence removed
+
+        file.write(ini);
     }
 }

@@ -47,6 +47,7 @@ endif()
 add_subdirectory(vendor/spdlog)
 add_subdirectory(vendor/mINI)
 
+# ImGui library (vendor/imgui has no CMakeLists)
 # DirectXTK (DirectX Tool Kit 11) - disable unnecessary features
 set(BUILD_TOOLS OFF CACHE BOOL "" FORCE)
 set(BUILD_XAUDIO_WIN10 OFF CACHE BOOL "" FORCE)
@@ -126,16 +127,16 @@ file(GLOB_RECURSE PROJECT_SOURCES CONFIGURE_DEPENDS
 )
 
 # Create the main DLL with explicit exports
-add_library(${PROJECT_NAME} SHARED ${PROJECT_SOURCES} SC4AdvancedLotPlop.def)
+add_library(${PROJECT_NAME} SHARED ${PROJECT_SOURCES} ${HEADERS} SC4AdvancedLotPlop.def)
 
 # Link libraries
 target_link_libraries(${PROJECT_NAME}
     PRIVATE
     spdlog
     mINI
-    nlohmann_json
     imgui
     gzcom2
+    nlohmann_json
     DirectXTK
 )
 

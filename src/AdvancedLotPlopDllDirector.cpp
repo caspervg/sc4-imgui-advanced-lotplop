@@ -520,14 +520,23 @@ private:
         mPropPainterUI.UpdateLoadingProgress("Initializing...", 0, 0);
 
         cIGZPersistResourceManagerPtr pRM;
-        ID3D11Device* pDevice = D3D11Hook::GetDevice();
-        ID3D11DeviceContext* pContext = D3D11Hook::GetDeviceContext();
 
         auto progressCallback = [this](const char* stage, int current, int total) {
             mPropPainterUI.UpdateLoadingProgress(stage, current, total);
         };
 
-        bool success = propCacheManager.Initialize(pCity, pRM, pDevice, pContext, progressCallback);
+    	ID3D11Device* pDevice = D3D11Hook::GetDevice();
+    	ID3D11DeviceContext* pContext = nullptr;
+    	if (pDevice)
+    	{
+    		pDevice->GetImmediateContext(&pContext);
+    	} else
+    	{
+    		LOG_ERROR("Failed to get device context to build prop cache");
+    		return;
+    	}
+
+        const bool success = propCacheManager.Initialize(pCity, pRM, pDevice, pContext, progressCallback);
 
         mPropPainterUI.ShowLoadingWindow(false);
 
@@ -610,6 +619,7 @@ private:
                 ToggleWindow();
                 break;
             case kTogglePropPainterWindowShortcutID:
+        		LOG_DEBUG("Toggle prop painter window");
                 TogglePropPainterWindow();
                 break;
             default:

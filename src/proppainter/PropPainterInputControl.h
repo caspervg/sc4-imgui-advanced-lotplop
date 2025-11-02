@@ -3,8 +3,8 @@
 #include "cRZAutoRefCount.h"
 #include <cstdint>
 
-class cISC4City;
-class cISC4PropManager;
+#include "cISC4City.h"
+#include "cISC4PropManager.h"
 
 /**
  * @brief View input control for painting props in the 3D view

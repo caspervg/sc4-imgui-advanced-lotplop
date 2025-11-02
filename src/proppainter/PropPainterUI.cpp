@@ -28,7 +28,7 @@ void PropPainterUI::Render() {
         return;
     }
 
-    ImGui::SetNextWindowSize(ImVec2(800, 600), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(900, 700), ImGuiCond_FirstUseEver);
     if (ImGui::Begin("Prop Painter", &showWindow)) {
         // Check if cache is ready
         if (!pCacheManager || !pCacheManager->IsInitialized()) {
@@ -39,17 +39,47 @@ void PropPainterUI::Render() {
                 }
             }
         } else {
-            // Two-column layout
-            ImGui::BeginChild("PropBrowser", ImVec2(500, 0), true);
-            RenderPropBrowser();
+            // Top toolbar/filters section
+            RenderToolbar();
+            ImGui::Separator();
+
+            // Main two-column layout
+            float leftWidth = 600.0f;
+            float rightWidth = ImGui::GetContentRegionAvail().x - leftWidth - ImGui::GetStyle().ItemSpacing.x;
+
+            ImGui::BeginChild("LeftPanel", ImVec2(leftWidth, 0), false);
+            {
+                // Prop browser takes most of left panel
+                float browserHeight = ImGui::GetContentRegionAvail().y - 180;
+                ImGui::BeginChild("PropBrowser", ImVec2(0, browserHeight), true);
+                RenderPropBrowser();
+                ImGui::EndChild();
+
+                ImGui::Spacing();
+
+                // Preview at bottom of left panel
+                ImGui::BeginChild("PropPreview", ImVec2(0, 0), true);
+                RenderPropPreview();
+                ImGui::EndChild();
+            }
             ImGui::EndChild();
 
             ImGui::SameLine();
 
-            ImGui::BeginChild("ControlPanel", ImVec2(0, 0), true);
-            RenderPaintingControls();
-            ImGui::Separator();
-            RenderPropDetails();
+            ImGui::BeginChild("RightPanel", ImVec2(rightWidth, 0), false);
+            {
+                // Controls at top
+                ImGui::BeginChild("Controls", ImVec2(0, 200), true);
+                RenderPaintingControls();
+                ImGui::EndChild();
+
+                ImGui::Spacing();
+
+                // Details below
+                ImGui::BeginChild("Details", ImVec2(0, 0), true);
+                RenderPropDetails();
+                ImGui::EndChild();
+            }
             ImGui::EndChild();
         }
     }
@@ -84,14 +114,52 @@ void PropPainterUI::RenderLoadingWindow() {
     ImGui::End();
 }
 
+void PropPainterUI::RenderToolbar() {
+    // Search and quick actions in toolbar
+    ImGui::PushItemWidth(300);
+    ImGui::InputText("##Search", searchBuffer, sizeof(searchBuffer));
+    ImGui::PopItemWidth();
+
+    ImGui::SameLine();
+    if (ImGui::Button("Clear Search")) {
+        searchBuffer[0] = '\0';
+    }
+
+    ImGui::SameLine();
+    ImGui::Dummy(ImVec2(20, 0));
+
+    ImGui::SameLine();
+    if (ImGui::Button("Refresh Cache")) {
+        if (callbacks.OnBuildCache) {
+            callbacks.OnBuildCache();
+        }
+    }
+}
+
+void PropPainterUI::RenderPropPreview() {
+    if (selectedPropID == 0 || !pCacheManager) {
+        ImGui::TextWrapped("No prop selected");
+        return;
+    }
+
+    const PropCacheEntry* entry = pCacheManager->GetPropByID(selectedPropID);
+    if (!entry || !entry->iconSRV) {
+        ImGui::TextWrapped("No preview available");
+        return;
+    }
+
+    float availWidth = ImGui::GetContentRegionAvail().x;
+    float previewSize = availWidth - 20;
+    if (previewSize > 150) previewSize = 150;
+
+    ImVec2 cursorPos = ImGui::GetCursorPos();
+    float offset = (availWidth - previewSize) / 2.0f;
+    ImGui::SetCursorPos(ImVec2(cursorPos.x + offset, cursorPos.y));
+
+    ImGui::Image(entry->iconSRV, ImVec2(previewSize, previewSize));
+}
+
 void PropPainterUI::RenderPropBrowser() {
-    ImGui::Text("Prop Browser");
-    ImGui::Separator();
-
-    // Search filter
-    ImGui::InputText("Search", searchBuffer, sizeof(searchBuffer));
-    ImGui::Separator();
-
     if (!pCacheManager) {
         return;
     }
@@ -109,21 +177,20 @@ void PropPainterUI::RenderPropBrowser() {
         filteredCount++;
     }
 
-    ImGui::Text("Props: %zu (filtered: %zu)", allProps.size(), filteredCount);
+    ImGui::Text("Total: %zu | Showing: %zu", allProps.size(), filteredCount);
+    ImGui::Separator();
 
     // Render props table
     if (ImGui::BeginTable("PropTable", 3,
-                          ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY,
+                          ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
+                          ImGuiTableFlags_ScrollY | ImGuiTableFlags_Sortable,
                           ImVec2(0.0f, 0.0f)))
     {
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableSetupColumn("Icon", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoSort, 56.0f);
-        ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_DefaultSort);
         ImGui::TableSetupColumn("ID", ImGuiTableColumnFlags_WidthFixed, 90);
         ImGui::TableHeadersRow();
-
-        // Use clipper for efficient rendering
-        ImGuiListClipper clipper;
 
         // Build filtered indices
         std::vector<int> filteredIndices;
@@ -137,6 +204,7 @@ void PropPainterUI::RenderPropBrowser() {
             filteredIndices.push_back(static_cast<int>(i));
         }
 
+        ImGuiListClipper clipper;
         clipper.Begin(static_cast<int>(filteredIndices.size()));
         while (clipper.Step()) {
             for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; ++row) {
@@ -149,7 +217,6 @@ void PropPainterUI::RenderPropBrowser() {
                 // Icon column
                 ImGui::TableSetColumnIndex(0);
                 if (prop.iconSRV) {
-                    // S3D thumbnail - display full square texture
                     float displaySize = 44.0f;
                     ImVec2 cursorPos = ImGui::GetCursorPos();
 
@@ -159,13 +226,12 @@ void PropPainterUI::RenderPropBrowser() {
                         displaySize = static_cast<float>(prop.iconWidth);
                     }
 
-                    ImGui::Image(reinterpret_cast<ImTextureID>(prop.iconSRV), ImVec2(displaySize, displaySize));
+                    ImGui::Image(prop.iconSRV, ImVec2(displaySize, displaySize));
                 } else {
-                    // No icon - show placeholder
                     ImGui::Dummy(ImVec2(44, 44));
                 }
 
-                // Name column + selection behavior spanning the row
+                // Name column
                 ImGui::TableSetColumnIndex(1);
                 bool isSelected = (prop.propID == selectedPropID);
                 if (ImGui::Selectable(prop.name.c_str(), isSelected, ImGuiSelectableFlags_SpanAllColumns)) {
@@ -173,7 +239,6 @@ void PropPainterUI::RenderPropBrowser() {
                     LOG_INFO("Selected prop: {} (ID: 0x{:08X})", prop.name, prop.propID);
                 }
 
-                // Double-click to start painting immediately
                 if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
                     selectedPropID = prop.propID;
                     if (!paintingActive && callbacks.OnStartPainting) {
@@ -199,49 +264,52 @@ void PropPainterUI::RenderPaintingControls() {
     ImGui::Separator();
 
     // Rotation selector
-    const char* rotationNames[] = { "South (0)", "East (1)", "North (2)", "West (3)" };
-    ImGui::Combo("Rotation", &selectedRotation, rotationNames, 4);
-
-    ImGui::Spacing();
-
-    // Thumbnail size slider
-    ImGui::SliderInt("Thumbnail Size", &thumbnailSize, 32, 128);
+    const char* rotationNames[] = { "South (0°)", "East (90°)", "North (180°)", "West (270°)" };
+    ImGui::Text("Rotation:");
+    ImGui::SetNextItemWidth(-1);
+    if (ImGui::Combo("##Rotation", &selectedRotation, rotationNames, 4)) {
+        // Update rotation in painting mode if active
+        if (paintingActive && callbacks.OnStartPainting) {
+            callbacks.OnStartPainting(selectedPropID, selectedRotation);
+        }
+    }
 
     ImGui::Spacing();
     ImGui::Separator();
     ImGui::Spacing();
 
-    // Painting toggle button
+    // Painting toggle
     if (!paintingActive) {
-        if (ImGui::Button("Start Painting", ImVec2(-1, 40))) {
-            if (selectedPropID != 0) {
-                paintingActive = true;
-                if (callbacks.OnStartPainting) {
-                    callbacks.OnStartPainting(selectedPropID, selectedRotation);
-                }
-                LOG_INFO("Started painting mode for prop 0x{:08X}", selectedPropID);
-            } else {
-                LOG_WARN("No prop selected");
+        ImGui::BeginDisabled(selectedPropID == 0);
+        if (ImGui::Button("Start Painting", ImVec2(-1, 50))) {
+            paintingActive = true;
+            if (callbacks.OnStartPainting) {
+                callbacks.OnStartPainting(selectedPropID, selectedRotation);
             }
+            LOG_INFO("Started painting mode for prop 0x{:08X}", selectedPropID);
         }
-        if (selectedPropID == 0) {
-            ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f), "Select a prop first");
-        }
+        ImGui::EndDisabled();
+
+        // if (selectedPropID == 0) {
+        //     ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "Select a prop to begin");
+        // }
     } else {
-        if (ImGui::Button("Stop Painting", ImVec2(-1, 40))) {
+        if (ImGui::Button("Stop Painting", ImVec2(-1, 50))) {
             paintingActive = false;
             if (callbacks.OnStopPainting) {
                 callbacks.OnStopPainting();
             }
             LOG_INFO("Stopped painting mode");
         }
-        ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "Painting Active!");
-        ImGui::TextWrapped("Click in the city to place props");
+
+        // ImGui::Spacing();
+        // ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "● Painting Active");
+        // ImGui::TextWrapped("Click in the city to place props");
     }
 }
 
 void PropPainterUI::RenderPropDetails() {
-    ImGui::Text("Prop Details");
+    ImGui::Text("Prop Information");
     ImGui::Separator();
 
     if (selectedPropID == 0 || !pCacheManager) {
@@ -255,26 +323,26 @@ void PropPainterUI::RenderPropDetails() {
         return;
     }
 
-    ImGui::Text("Name: %s", entry->name.c_str());
-    ImGui::Text("Prop ID: 0x%08X", entry->propID);
-    ImGui::Text("Exemplar IID: 0x%08X", entry->exemplarIID);
+    ImGui::Text("Name:");
+    ImGui::Indent();
+    ImGui::TextWrapped("%s", entry->name.c_str());
+    ImGui::Unindent();
+
+    ImGui::Spacing();
+    ImGui::Text("Exemplar IID:");
+    ImGui::Indent();
+    ImGui::Text("0x%08X", entry->exemplarIID);
+    ImGui::Unindent();
 
     if (entry->s3dType != 0) {
+        ImGui::Spacing();
         ImGui::Separator();
         ImGui::Text("S3D Resource:");
-        ImGui::Text("  Type: 0x%08X", entry->s3dType);
-        ImGui::Text("  Group: 0x%08X", entry->s3dGroup);
-        ImGui::Text("  Instance: 0x%08X", entry->s3dInstance);
-    }
-
-    // Show larger preview
-    if (entry->iconSRV) {
-        ImGui::Separator();
-        ImGui::Text("Preview:");
-        ImGui::Image(
-            reinterpret_cast<ImTextureID>(entry->iconSRV),
-            ImVec2(128, 128)
-        );
+        ImGui::Indent();
+        ImGui::Text("Type:     0x%08X", entry->s3dType);
+        ImGui::Text("Group:    0x%08X", entry->s3dGroup);
+        ImGui::Text("Instance: 0x%08X", entry->s3dInstance);
+        ImGui::Unindent();
     }
 }
 

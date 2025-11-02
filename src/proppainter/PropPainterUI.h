@@ -67,7 +67,9 @@ public:
 
 private:
     void RenderLoadingWindow();
+    void RenderToolbar();
     void RenderPropBrowser();
+    void RenderPropPreview();
     void RenderPaintingControls();
     void RenderPropDetails();
 

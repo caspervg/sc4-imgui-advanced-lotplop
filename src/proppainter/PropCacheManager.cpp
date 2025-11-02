@@ -12,6 +12,9 @@
 #include "../utils/Logger.h"
 #include <d3d11.h>
 
+#include "cIGZVariant.h"
+#include "cISCProperty.h"
+
 static const uint32_t kResourceKeyType1 = 0x27812821; // RKT1
 
 PropCacheManager::PropCacheManager()
@@ -112,12 +115,12 @@ bool PropCacheManager::LoadPropsFromManager(
         entry.propID = propID;
 
         // Get prop name
-        cIGZString* pName = pPropManager->GetPropName(propID);
-        if (pName) {
-            entry.name = pName->ToChar();
-        } else {
-            entry.name = "Unknown Prop";
-        }
+        // cIGZString* pName = pPropManager->GetPropName(propID);
+        // if (pName) {
+        //     entry.name = pName->ToChar();
+        // } else {
+        //     entry.name = "Unknown Prop";
+        // }
 
         // Get the exemplar resource key for this prop
         cGZPersistResourceKey exemplarKey;
@@ -140,6 +143,11 @@ bool PropCacheManager::LoadPropsFromManager(
             LOG_DEBUG("Failed to load exemplar for prop 0x{:08X}", propID);
             continue;
         }
+
+    	constexpr uint32_t kPropExemplarName = 0x00000020;
+    	const auto propName = new cRZBaseString(64);
+    	pPropExemplar->GetProperty(kPropExemplarName, *propName);
+    	entry.name = propName->ToChar();
 
         // Extract S3D resource key from RKT1 property
         cGZPersistResourceKey s3dKey;

@@ -107,10 +107,10 @@ bool PropPainterInputControl::PlacePropAt(int32_t screenX, int32_t screenZ) {
     cS3DVector3 position(worldCoords[0], worldCoords[1], worldCoords[2]);
 
     LOG_INFO("Placing prop 0x{:08X} at ({:.2f}, {:.2f}, {:.2f}), rotation: {}",
-        propIDToPaint, position.fX, position.fY, position.fZ, rotationToPaint);
+        propIDToPaint, position.fX, position.fY, position.fZ, rotationToPaint*90.0f);
 
     // Add the prop to the city
-    bool success = propManager->AddCityProp(propIDToPaint, position, rotationToPaint);
+    bool success = propManager->AddCityProp(propIDToPaint, position, rotationToPaint*90.0f);
 
     if (success) {
         LOG_INFO("Successfully placed prop");

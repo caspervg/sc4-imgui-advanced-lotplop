@@ -29,6 +29,7 @@
 
 class cISC4City;
 class cIGZPersistResourceManager;
+class PersistentCache;
 struct ID3D11Device;
 
 // Progress callback: stage description, current progress, total steps
@@ -67,6 +68,9 @@ public:
     // Access the cache
     const std::unordered_map<uint32_t, LotConfigEntry>& GetLotConfigCache() const { return lotConfigCache; }
 
+    // Set S3D thumbnail cache (must be called before cache build)
+    void SetPersistentCache(PersistentCache* pCache) { pS3DCache = pCache; }
+
 private:
     // Build exemplar cache
     void BuildExemplarCache(cIGZPersistResourceManager* pRM, LotCacheProgressCallback progressCallback);
@@ -88,6 +92,9 @@ private:
     std::unordered_map<uint32_t, LotConfigEntry> lotConfigCache;
     std::unordered_map<uint32_t, std::vector<std::pair<uint32_t, cRZAutoRefCount<cISCPropertyHolder>>>> exemplarCache;
     bool cacheInitialized;
+
+    // S3D thumbnail cache (not owned, just a reference)
+    PersistentCache* pS3DCache;
 
     // Incremental processing state
     std::vector<std::pair<uint32_t, uint32_t>> lotSizesToProcess; // Pairs of (x, z)

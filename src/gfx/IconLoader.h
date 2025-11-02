@@ -20,6 +20,7 @@
  */
 #pragma once
 #include <cstdint>
+#include <vector>
 
 class cIGZPersistResourceManager;
 struct ID3D11Device;
@@ -47,5 +48,26 @@ public:
         ID3D11ShaderResourceView** outSRV,
         int* outWidth,
         int* outHeight
+    );
+
+    /**
+     * Load an icon from a PNG resource and also return the decoded RGBA data for caching.
+     * @param pRM Resource manager
+     * @param iconInstance PNG instance ID
+     * @param pDevice D3D11 device
+     * @param outSRV Output shader resource view (caller must Release when done)
+     * @param outWidth Output icon width
+     * @param outHeight Output icon height
+     * @param outRGBA Output RGBA data (for persistent caching)
+     * @return true if successful, false otherwise
+     */
+    static bool LoadIconFromPNG(
+        cIGZPersistResourceManager* pRM,
+        uint32_t iconInstance,
+        ID3D11Device* pDevice,
+        ID3D11ShaderResourceView** outSRV,
+        int* outWidth,
+        int* outHeight,
+        std::vector<uint8_t>* outRGBA
     );
 };

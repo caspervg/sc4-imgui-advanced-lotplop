@@ -49,6 +49,7 @@
 #include "imgui_impl_win32.h"
 #include "version.h"
 #include "cache/LotCacheManager.h"
+#include "cache/PersistentCache.h"
 #include "filter/LotFilterer.h"
 #include "ui/AdvancedLotPlopUI.h"
 #include "ui/LotConfigEntry.h"
@@ -151,6 +152,18 @@ public:
 
         pCity = static_cast<cISC4City *>(pStandardMsg->GetVoid1());
         mUI.SetCity(pCity);
+
+        // Initialize S3D thumbnail cache
+        if (pSC4App) {
+            cRZBaseString userDirStr;
+            if (pSC4App->GetUserDataDirectory(userDirStr)) {
+                std::string dbPath = std::string(userDirStr.Data()) + "\\SC4AdvancedLotPlop.db";
+                if (s3dCache.Initialize(dbPath, 1)) {
+                    lotCacheManager.SetPersistentCache(&s3dCache);
+                    LOG_INFO("S3D thumbnail cache initialized and linked to LotCacheManager");
+                }
+            }
+        }
 
         if (pSC4App && pMS2) {
             constexpr uint32_t kGZWin_WinSC4App = 0x6104489A;
@@ -334,6 +347,7 @@ private:
 
     // Services
     LotCacheManager lotCacheManager;
+    PersistentCache s3dCache;
 
     // UI facade
     AdvancedLotPlopUI mUI;

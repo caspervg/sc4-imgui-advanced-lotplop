@@ -55,3 +55,35 @@ bool IconLoader::LoadIconFromPNG(
     if (outHeight) *outHeight = h;
     return true;
 }
+
+bool IconLoader::LoadIconFromPNG(
+    cIGZPersistResourceManager* pRM,
+    uint32_t iconInstance,
+    ID3D11Device* pDevice,
+    ID3D11ShaderResourceView** outSRV,
+    int* outWidth,
+    int* outHeight,
+    std::vector<uint8_t>* outRGBA
+) {
+    if (!pRM || !pDevice || !outSRV || iconInstance == 0) {
+        return false;
+    }
+
+    // Load PNG bytes from resource
+    std::vector<uint8_t> pngBytes;
+    if (!ExemplarUtil::LoadPNGByInstance(pRM, iconInstance, pngBytes) || pngBytes.empty()) {
+        return false;
+    }
+
+    // Convert to D3D11 texture and optionally get RGBA data
+    ID3D11ShaderResourceView* srv = nullptr;
+    int w = 0, h = 0;
+    if (!gfx::CreateSRVFromPNGMemory(pngBytes.data(), pngBytes.size(), pDevice, &srv, &w, &h, outRGBA)) {
+        return false;
+    }
+
+    *outSRV = srv;
+    if (outWidth) *outWidth = w;
+    if (outHeight) *outHeight = h;
+    return true;
+}

@@ -20,6 +20,7 @@
  */
 // ReSharper disable CppDFAUnreachableCode
 #include "LotCacheManager.h"
+#include "PersistentCache.h"
 
 #include <d3d11.h>
 
@@ -43,6 +44,7 @@
 
 LotCacheManager::LotCacheManager()
     : cacheInitialized(false),
+      pS3DCache(nullptr),
       currentLotSizeIndex(0),
       processedLotCount(0),
       totalLotCount(0),
@@ -360,8 +362,29 @@ void LotCacheManager::BuildExemplarCacheSync(cIGZPersistResourceManager* pRM) {
 
 void LotCacheManager::BeginLotConfigProcessing(cISC4City* pCity) {
     pCityForIncremental = pCity;
+    lotConfigCache.reserve(2048);
 
-    // Build list of lot sizes to process
+    // Try loading lot configs from persistent cache first
+    if (pS3DCache && pS3DCache->IsInitialized()) {
+        int cachedCount = pS3DCache->GetLotConfigCount();
+        if (cachedCount > 0) {
+            LOG_INFO("Loading {} lot configs from persistent cache...", cachedCount);
+
+            std::vector<uint32_t> lotIDs;
+            if (pS3DCache->GetAllLotConfigIDs(lotIDs)) {
+                for (uint32_t lotID : lotIDs) {
+                    LotConfigEntry entry;
+                    if (pS3DCache->LoadLotConfigMetadata(lotID, entry)) {
+                        lotConfigCache[lotID] = entry;
+                    }
+                }
+
+                LOG_INFO("Loaded {} lot configs from cache (will scan DBPF for new lots)", lotConfigCache.size());
+            }
+        }
+    }
+
+    // Always scan DBPF to discover new lots (ProcessLotConfigBatch will skip cached ones)
     lotSizesToProcess.clear();
     for (uint32_t x = 1; x <= 16; x++) {
         for (uint32_t z = 1; z <= 16; z++) {
@@ -372,8 +395,6 @@ void LotCacheManager::BeginLotConfigProcessing(cISC4City* pCity) {
     currentLotSizeIndex = 0;
     processedLotCount = 0;
     totalLotCount = static_cast<int>(lotSizesToProcess.size());
-
-    lotConfigCache.reserve(2048);
 }
 
 int LotCacheManager::ProcessLotConfigBatch(cIGZPersistResourceManager* pRM, ID3D11Device* pDevice, int maxLotsToProcess) {
@@ -437,15 +458,30 @@ int LotCacheManager::ProcessLotConfigBatch(cIGZPersistResourceManager* pRM, ID3D
                                 entry.name += ")";
                             }
 
-                            // Load icon immediately
+                            // Store building exemplar ID for S3D thumbnail generation
+                            entry.buildingExemplarID = buildingExemplarID;
+
+                            // Extract S3D resource information (type, group, instance)
+                            uint32_t s3dType = 0, s3dGroup = 0, s3dInstance = 0;
+                            if (S3D::ThumbnailGenerator::GetS3DResourceKey(
+                                    pBuildingExemplar, s3dType, s3dGroup, s3dInstance)) {
+                                // Calculate final S3D instance for default zoom/rotation
+                                entry.s3dInstance = S3D::ThumbnailGenerator::CalculateS3DInstance(s3dInstance, 5, 0);
+                                entry.s3dType = s3dType;
+                                entry.s3dGroup = s3dGroup;
+                            }
+
+                            // Load PNG icon if available (highest priority)
                             uint32_t iconInstance = 0;
+                            std::vector<uint8_t> iconRGBA; // For caching
                             if (ExemplarUtil::GetItemIconInstance(pBuildingExemplar, iconInstance)) {
                                 entry.iconInstance = iconInstance;
 
                                 if (pDevice) {
                                     ID3D11ShaderResourceView* srv = nullptr;
                                     int w = 0, h = 0;
-                                    if (IconLoader::LoadIconFromPNG(pRM, iconInstance, pDevice, &srv, &w, &h)) {
+                                    // Load PNG and capture RGBA data for caching
+                                    if (IconLoader::LoadIconFromPNG(pRM, iconInstance, pDevice, &srv, &w, &h, &iconRGBA)) {
                                         entry.iconSRV = srv;
                                         entry.iconWidth = w;
                                         entry.iconHeight = h;
@@ -454,27 +490,25 @@ int LotCacheManager::ProcessLotConfigBatch(cIGZPersistResourceManager* pRM, ID3D
                                 }
                             }
 
-                            // If no PNG icon loaded, try S3D thumbnail as fallback
-                            if (entry.iconType == LotConfigEntry::IconType::None && pDevice) {
-                                ID3D11DeviceContext* pContext = nullptr;
-                                pDevice->GetImmediateContext(&pContext);
+                            // If no PNG icon, try loading S3D thumbnail from cache (no generation yet)
+                            if (entry.iconType == LotConfigEntry::IconType::None &&
+                                entry.s3dInstance != 0 &&
+                                pDevice &&
+                                pS3DCache &&
+                                pS3DCache->IsInitialized()) {
 
+                                ID3D11ShaderResourceView* srv = nullptr;
+                                int w = 0, h = 0;
 
-                                if (pContext) {
-                                    ID3D11ShaderResourceView* s3dSRV = S3D::ThumbnailGenerator::GenerateThumbnailFromExemplar(
-                                        pBuildingExemplar, pRM, pDevice, pContext, kThumbnailSize, 5, 0
-                                    );
-
-                                    if (s3dSRV) {
-                                        entry.iconSRV = s3dSRV;
-                                        entry.iconWidth = kThumbnailSize;
-                                        entry.iconHeight = kThumbnailSize;
-                                        entry.iconType = LotConfigEntry::IconType::S3D;
-                                        LOG_DEBUG("Generated S3D thumbnail for lot 0x{:08X} ({})", lotConfigID, entry.name);
-                                    }
-
-                                    pContext->Release();
+                                if (pS3DCache->LoadThumbnailToGPU(entry.s3dInstance, pDevice, &srv, w, h)) {
+                                    entry.iconSRV = srv;
+                                    entry.iconWidth = w;
+                                    entry.iconHeight = h;
+                                    entry.iconType = LotConfigEntry::IconType::S3D;
+                                    LOG_DEBUG("Loaded S3D thumbnail from cache for lot 0x{:08X} (S3D 0x{:08X})",
+                                              lotConfigID, entry.s3dInstance);
                                 }
+                                // If not in cache, leave iconType as None - will be generated lazily on-demand
                             }
 
                             // Occupant groups
@@ -510,6 +544,11 @@ int LotCacheManager::ProcessLotConfigBatch(cIGZPersistResourceManager* pRM, ID3D
                 entry.growthStage = pConfig->GetGrowthStage();
 
                 lotConfigCache[lotConfigID] = entry;
+
+                // Save to persistent cache (with icon RGBA data if available)
+                if (pS3DCache && pS3DCache->IsInitialized()) {
+                    pS3DCache->SaveLotConfig(entry, iconRGBA);
+                }
 
                 // Increment per individual lot, not per lot size
                 processedThisBatch++;

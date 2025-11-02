@@ -24,6 +24,12 @@ struct LotConfigEntry {
     // Building classification
     std::unordered_set<uint32_t> occupantGroups; // Raw occupant group IDs
 
+    // Building reference (S3D model information)
+    uint32_t buildingExemplarID = 0;  // Building exemplar instance ID
+    uint32_t s3dInstance = 0;          // Calculated S3D resource instance (from RKT properties)
+    uint32_t s3dType = 0;              // S3D type ID (usually 0x5AD0E817)
+    uint32_t s3dGroup = 0;             // S3D group ID (building family)
+
     // Item Icon instance (PNG resource instance id) saved during cache build
     uint32_t iconInstance = 0;
 

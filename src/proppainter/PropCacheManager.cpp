@@ -16,6 +16,7 @@ static const uint32_t kResourceKeyType1 = 0x27812821; // RKT1
 
 PropCacheManager::PropCacheManager()
     : initialized(false)
+    , pPropManager(nullptr)
     , progressCallback(nullptr)
 {
 }
@@ -27,6 +28,8 @@ PropCacheManager::~PropCacheManager() {
 void PropCacheManager::Clear() {
     props.clear();
     propIDToIndex.clear();
+    familyTypes.clear();
+    pPropManager = nullptr;
     initialized = false;
 }
 
@@ -51,13 +54,19 @@ bool PropCacheManager::Initialize(
 
     LOG_INFO("Initializing prop cache...");
 
-    cISC4PropManager* pPropManager = pCity->GetPropManager();
-    if (!pPropManager) {
+    this->pPropManager = pCity->GetPropManager();
+    if (!this->pPropManager) {
         LOG_ERROR("Failed to get PropManager from city");
         return false;
     }
 
-    bool result = LoadPropsFromManager(pPropManager, pRM, pDevice, pContext);
+    // Load prop family types
+    SC4Vector<uint32_t> families;
+    this->pPropManager->GetAllPropFamilyTypes(families);
+    familyTypes.assign(families.begin(), families.end());
+    LOG_INFO("Found {} prop families", familyTypes.size());
+
+    bool result = LoadPropsFromManager(this->pPropManager, pRM, pDevice, pContext);
 
     if (result) {
         LOG_INFO("Prop cache initialized with {} props", props.size());

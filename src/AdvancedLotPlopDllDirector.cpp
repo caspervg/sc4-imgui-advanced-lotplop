@@ -407,6 +407,7 @@ private:
                     pAcceleratorRes->RegisterResources(pAccel);
                     if (pMS2) {
                         pMS2->AddNotification(this, kToggleLotPlopWindowShortcutID);
+                        pMS2->AddNotification(this, kTogglePropPainterWindowShortcutID);
                     }
                 }
             }
@@ -417,6 +418,7 @@ private:
         cIGZMessageServer2Ptr pMS2Local;
         if (pMS2Local) {
             pMS2Local->RemoveNotification(this, kToggleLotPlopWindowShortcutID);
+            pMS2Local->RemoveNotification(this, kTogglePropPainterWindowShortcutID);
         }
     }
 

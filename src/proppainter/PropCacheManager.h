@@ -63,6 +63,16 @@ public:
      */
     size_t GetPropCount() const { return props.size(); }
 
+    /**
+     * @brief Get all prop family types
+     */
+    const std::vector<uint32_t>& GetAllFamilyTypes() const { return familyTypes; }
+
+    /**
+     * @brief Get the prop manager (for family queries)
+     */
+    cISC4PropManager* GetPropManager() const { return pPropManager; }
+
 private:
     bool LoadPropsFromManager(
         cISC4PropManager* pPropManager,
@@ -74,5 +84,7 @@ private:
     bool initialized;
     std::vector<PropCacheEntry> props;
     std::map<uint32_t, size_t> propIDToIndex;
+    std::vector<uint32_t> familyTypes;
+    cISC4PropManager* pPropManager;
     ProgressCallback progressCallback;
 };

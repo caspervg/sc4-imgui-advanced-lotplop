@@ -98,74 +98,100 @@ void PropPainterUI::RenderPropBrowser() {
 
     const auto& allProps = pCacheManager->GetAllProps();
 
-    // Calculate grid layout
-    float windowWidth = ImGui::GetContentRegionAvail().x;
-    float cellSize = thumbnailSize + gridSpacing * 2;
-    int columns = std::max(1, static_cast<int>(windowWidth / cellSize));
+    // Count filtered props
+    size_t filteredCount = 0;
+    for (const auto& prop : allProps) {
+        if (searchBuffer[0] != '\0') {
+            if (prop.name.find(searchBuffer) == std::string::npos) {
+                continue;
+            }
+        }
+        filteredCount++;
+    }
 
-    ImGui::Text("Props: %zu", allProps.size());
-    ImGui::Separator();
+    ImGui::Text("Props: %zu (filtered: %zu)", allProps.size(), filteredCount);
 
-    // Scrollable prop grid
-    if (ImGui::BeginChild("PropGrid", ImVec2(0, 0), false)) {
-        int col = 0;
+    // Render props table
+    if (ImGui::BeginTable("PropTable", 3,
+                          ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY,
+                          ImVec2(0.0f, 0.0f)))
+    {
+        ImGui::TableSetupScrollFreeze(0, 1);
+        ImGui::TableSetupColumn("Icon", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoSort, 56.0f);
+        ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableSetupColumn("ID", ImGuiTableColumnFlags_WidthFixed, 90);
+        ImGui::TableHeadersRow();
 
-        for (const auto& prop : allProps) {
-            // Apply search filter
+        // Use clipper for efficient rendering
+        ImGuiListClipper clipper;
+
+        // Build filtered indices
+        std::vector<int> filteredIndices;
+        for (size_t i = 0; i < allProps.size(); ++i) {
+            const auto& prop = allProps[i];
             if (searchBuffer[0] != '\0') {
                 if (prop.name.find(searchBuffer) == std::string::npos) {
                     continue;
                 }
             }
+            filteredIndices.push_back(static_cast<int>(i));
+        }
 
-            // Start new row
-            if (col > 0) {
-                ImGui::SameLine();
-            }
+        clipper.Begin(static_cast<int>(filteredIndices.size()));
+        while (clipper.Step()) {
+            for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; ++row) {
+                int idx = filteredIndices[row];
+                const auto& prop = allProps[idx];
 
-            ImGui::BeginGroup();
+                ImGui::TableNextRow();
+                ImGui::PushID(idx);
 
-            // Thumbnail button
-            bool isSelected = (prop.propID == selectedPropID);
-            if (isSelected) {
-                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.2f, 0.5f, 0.8f, 1.0f));
-            }
+                // Icon column
+                ImGui::TableSetColumnIndex(0);
+                if (prop.iconSRV) {
+                    // S3D thumbnail - display full square texture
+                    float displaySize = 44.0f;
+                    ImVec2 cursorPos = ImGui::GetCursorPos();
 
-            ImVec2 thumbnailSizeVec(thumbnailSize, thumbnailSize);
-            bool clicked = false;
+                    if (prop.iconWidth < 44) {
+                        float offset = (44.0f - prop.iconWidth) / 2.0f;
+                        ImGui::SetCursorPos(ImVec2(cursorPos.x + offset, cursorPos.y + offset));
+                        displaySize = static_cast<float>(prop.iconWidth);
+                    }
 
-            if (prop.iconSRV) {
-                clicked = ImGui::ImageButton(
-                    reinterpret_cast<ImTextureID>(prop.iconSRV),
-                    thumbnailSizeVec
-                );
-            } else {
-                clicked = ImGui::Button("?", thumbnailSizeVec);
-            }
+                    ImGui::Image(reinterpret_cast<ImTextureID>(prop.iconSRV), ImVec2(displaySize, displaySize));
+                } else {
+                    // No icon - show placeholder
+                    ImGui::Dummy(ImVec2(44, 44));
+                }
 
-            if (isSelected) {
-                ImGui::PopStyleColor();
-            }
+                // Name column + selection behavior spanning the row
+                ImGui::TableSetColumnIndex(1);
+                bool isSelected = (prop.propID == selectedPropID);
+                if (ImGui::Selectable(prop.name.c_str(), isSelected, ImGuiSelectableFlags_SpanAllColumns)) {
+                    selectedPropID = prop.propID;
+                    LOG_INFO("Selected prop: {} (ID: 0x{:08X})", prop.name, prop.propID);
+                }
 
-            if (clicked) {
-                selectedPropID = prop.propID;
-                LOG_INFO("Selected prop: {} (ID: 0x{:08X})", prop.name, prop.propID);
-            }
+                // Double-click to start painting immediately
+                if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+                    selectedPropID = prop.propID;
+                    if (!paintingActive && callbacks.OnStartPainting) {
+                        paintingActive = true;
+                        callbacks.OnStartPainting(selectedPropID, selectedRotation);
+                    }
+                }
 
-            // Tooltip with prop name
-            if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("%s\nID: 0x%08X", prop.name.c_str(), prop.propID);
-            }
+                // ID column
+                ImGui::TableSetColumnIndex(2);
+                ImGui::Text("0x%08X", prop.propID);
 
-            ImGui::EndGroup();
-
-            col++;
-            if (col >= columns) {
-                col = 0;
+                ImGui::PopID();
             }
         }
+
+        ImGui::EndTable();
     }
-    ImGui::EndChild();
 }
 
 void PropPainterUI::RenderPaintingControls() {

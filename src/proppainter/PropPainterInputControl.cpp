@@ -46,10 +46,13 @@ void PropPainterInputControl::Deactivate() {
     LOG_INFO("PropPainterInputControl deactivated");
 }
 
-void PropPainterInputControl::SetPropToPaint(uint32_t propID, int32_t rotation) {
+void PropPainterInputControl::SetPropToPaint(uint32_t propID, int32_t rotation, const std::string& name) {
     propIDToPaint = propID;
     rotationToPaint = rotation;
-    LOG_INFO("Set prop to paint: 0x{:08X}, rotation: {}", propID, rotation);
+    previewState.propID = propID;
+    previewState.rotation = rotation;
+    previewState.propName = name;
+    LOG_INFO("Set prop to paint: {} (0x{:08X}), rotation: {}", name, propID, rotation);
 }
 
 void PropPainterInputControl::SetCity(cISC4City* pCity) {
@@ -68,8 +71,32 @@ bool PropPainterInputControl::OnMouseDownL(int32_t x, int32_t z, uint32_t modifi
 }
 
 bool PropPainterInputControl::OnMouseMove(int32_t x, int32_t z, uint32_t modifiers) {
-    // Could show a preview cursor here in the future
-    return false;
+    if (!isPainting) {
+        return false;
+    }
+
+    UpdatePreviewState(x, z);
+    return true;
+}
+
+void PropPainterInputControl::UpdatePreviewState(int32_t screenX, int32_t screenZ) {
+    if (!view3D) {
+        previewState.cursorValid = false;
+        return;
+    }
+
+    // Update cursor world position
+    float worldCoords[3] = { 0.0f, 0.0f, 0.0f };
+    previewState.cursorValid = view3D->PickTerrain(screenX, screenZ, worldCoords, false);
+
+    if (previewState.cursorValid) {
+        previewState.cursorWorldPos.fX = worldCoords[0];
+        previewState.cursorWorldPos.fY = worldCoords[1];
+        previewState.cursorWorldPos.fZ = worldCoords[2];
+
+        // Update rotation from current state
+        previewState.rotation = rotationToPaint;
+    }
 }
 
 bool PropPainterInputControl::OnKeyDown(int32_t vkCode, uint32_t modifiers) {

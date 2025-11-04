@@ -1,5 +1,8 @@
 #include "PropPainterUI.h"
+#include "PropPainterInputControl.h"
+#include "CoordinateConverter.h"
 #include "imgui.h"
+#include "cISC43DRender.h"
 #include "../utils/Logger.h"
 #include <cstring>
 
@@ -8,6 +11,8 @@ PropPainterUI::PropPainterUI()
     , showLoadingWindow(false)
     , paintingActive(false)
     , pCacheManager(nullptr)
+    , pInputControl(nullptr)
+    , pRenderer(nullptr)
     , loadingCurrent(0)
     , loadingTotal(0)
     , selectedPropID(0)
@@ -282,4 +287,73 @@ void PropPainterUI::UpdateLoadingProgress(const char* stage, int current, int to
     loadingStage = stage;
     loadingCurrent = current;
     loadingTotal = total;
+}
+
+void PropPainterUI::RenderPreviewOverlay() {
+    if (!paintingActive || !pInputControl || !pRenderer) {
+        return;
+    }
+
+    const PropPainterPreviewState& preview = pInputControl->GetPreviewState();
+    if (!preview.cursorValid) {
+        return;
+    }
+
+    // Convert world position to screen coordinates
+    float screenX, screenY;
+    if (!CoordinateConverter::WorldToScreen(pRenderer, preview.cursorWorldPos, screenX, screenY)) {
+        return;  // Position not visible on screen
+    }
+
+    ImDrawList* drawList = ImGui::GetForegroundDrawList();
+
+    // Draw crosshair at cursor position
+    const float crosshairSize = 20.0f;
+    const ImU32 crosshairColor = IM_COL32(0, 255, 0, 200);  // Green, semi-transparent
+    const float thickness = 2.0f;
+
+    ImVec2 center(screenX, screenY);
+
+    // Horizontal line
+    drawList->AddLine(
+        ImVec2(center.x - crosshairSize, center.y),
+        ImVec2(center.x + crosshairSize, center.y),
+        crosshairColor, thickness);
+
+    // Vertical line
+    drawList->AddLine(
+        ImVec2(center.x, center.y - crosshairSize),
+        ImVec2(center.x, center.y + crosshairSize),
+        crosshairColor, thickness);
+
+    // Draw circle around cursor
+    drawList->AddCircle(center, crosshairSize, crosshairColor, 32, thickness);
+
+    // Draw info box near cursor
+    const float offsetX = 30.0f;
+    const float offsetY = -10.0f;
+    ImVec2 textPos(center.x + offsetX, center.y + offsetY);
+
+    // Background box for text
+    char infoText[256];
+    const char* rotationNames[] = { "South", "East", "North", "West" };
+    snprintf(infoText, sizeof(infoText), "%s\nRotation: %s\n(%.1f, %.1f)",
+        preview.propName.c_str(),
+        rotationNames[preview.rotation % 4],
+        preview.cursorWorldPos.fX,
+        preview.cursorWorldPos.fZ);
+
+    ImVec2 textSize = ImGui::CalcTextSize(infoText);
+    ImVec2 boxMin(textPos.x - 4, textPos.y - 4);
+    ImVec2 boxMax(textPos.x + textSize.x + 4, textPos.y + textSize.y + 4);
+
+    // Draw semi-transparent background
+    drawList->AddRectFilled(boxMin, boxMax, IM_COL32(0, 0, 0, 180), 4.0f);
+    drawList->AddRect(boxMin, boxMax, IM_COL32(0, 255, 0, 255), 4.0f, 0, 1.5f);
+
+    // Draw text
+    drawList->AddText(textPos, IM_COL32(255, 255, 255, 255), infoText);
+
+    // TODO: Add area fill boundary rendering here when that mode is implemented
+    // if (preview.isDefiningArea) { ... }
 }

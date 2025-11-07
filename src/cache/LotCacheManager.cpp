@@ -19,9 +19,8 @@
  * If not, see <http://www.gnu.org/licenses/>.
  */
 // ReSharper disable CppDFAUnreachableCode
-#include "LotCacheManager.h"
-
 #include <d3d11.h>
+#include <cache/LotCacheManager.h>
 
 #include "cGZPersistResourceKey.h"
 #include "cIGZPersistResourceKeyList.h"
@@ -141,7 +140,6 @@ void LotCacheManager::BuildLotConfigCache(cISC4City* pCity, cIGZPersistResourceM
     constexpr uint32_t kPropertyExemplarTypeBuilding = 0x00000002;
 
     SC4HashSet<uint32_t> configIdTable{};
-    configIdTable.Init(256);
 
     int processedSizes = 0;
     const int totalSizes = 16 * 16;
@@ -156,9 +154,9 @@ void LotCacheManager::BuildLotConfigCache(cISC4City* pCity, cIGZPersistResourceM
 
             if (pLotConfigMgr->GetLotConfigurationIDsBySize(configIdTable, x, z)) {
                 for (const auto it : configIdTable) {
-                    uint32_t lotConfigID = it->key;
+                    uint32_t lotConfigID = it;
 
-                    if (lotConfigCache.count(lotConfigID)) continue;
+                    if (lotConfigCache.contains(lotConfigID)) continue;
 
                     cISC4LotConfiguration* pConfig = pLotConfigMgr->GetLotConfiguration(lotConfigID);
                     if (!pConfig) continue;
@@ -386,7 +384,6 @@ int LotCacheManager::ProcessLotConfigBatch(cIGZPersistResourceManager* pRM, ID3D
     constexpr uint32_t kPropertyExemplarTypeBuilding = 0x00000002;
 
     SC4HashSet<uint32_t> configIdTable{};
-    configIdTable.Init(256);
 
     int processedThisBatch = 0;
 
@@ -404,7 +401,7 @@ int LotCacheManager::ProcessLotConfigBatch(cIGZPersistResourceManager* pRM, ID3D
                     break;
                 }
 
-                uint32_t lotConfigID = it->key;
+                uint32_t lotConfigID = it;
 
                 if (lotConfigCache.count(lotConfigID)) continue;
 

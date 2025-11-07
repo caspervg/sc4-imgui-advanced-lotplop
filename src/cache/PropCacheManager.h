@@ -1,9 +1,10 @@
 #pragma once
-#include "PropCacheEntry.h"
-#include <vector>
-#include <map>
-#include <functional>
 #include <cstdint>
+#include <functional>
+#include <map>
+#include <vector>
+
+#include "../props/PropCacheEntry.h"
 
 class cISC4City;
 class cISC4PropManager;

@@ -19,11 +19,13 @@
  * If not, see <http://www.gnu.org/licenses/>.
  */
 #include "ImGuiLifecycleManager.h"
-#include "../utils/Logger.h"
-#include <imgui.h>
-#include <backends/imgui_impl_win32.h>
-#include <backends/imgui_impl_dx11.h>
+
 #include <d3d11.h>
+#include <imgui.h>
+#include <backends/imgui_impl_dx11.h>
+#include <backends/imgui_impl_win32.h>
+
+#include "Logger.h"
 
 ImGuiLifecycleManager::ImGuiLifecycleManager()
     : win32Initialized(false)

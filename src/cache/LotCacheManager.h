@@ -25,7 +25,7 @@
 
 #include "cISCPropertyHolder.h"
 #include "cRZAutoRefCount.h"
-#include "../ui/LotConfigEntry.h"
+#include "../lots/LotConfigEntry.h"
 
 class cISC4City;
 class cIGZPersistResourceManager;

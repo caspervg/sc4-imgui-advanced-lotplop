@@ -1,21 +1,20 @@
 #include "PropCacheManager.h"
-#include "cISC4City.h"
-#include "cISC4PropManager.h"
-#include "cIGZPersistResourceManager.h"
-#include "cISCPropertyHolder.h"
-#include "cGZPersistResourceKey.h"
-#include "cIGZString.h"
-#include "cRZAutoRefCount.h"
-#include "SC4Vector.h"
-#include "../s3d/S3DThumbnailGenerator.h"
-#include "../exemplar/PropertyUtil.h"
-#include "../utils/Logger.h"
+
 #include <d3d11.h>
 
-#include "cIGZVariant.h"
-#include "cISCProperty.h"
+#include "cGZPersistResourceKey.h"
+#include "cIGZPersistResourceManager.h"
+#include "cIGZString.h"
+#include "cISC4City.h"
+#include "cISC4PropManager.h"
+#include "cISCPropertyHolder.h"
+#include "cRZAutoRefCount.h"
+#include "SC4Vector.h"
+#include "../exemplar/PropertyUtil.h"
+#include "../s3d/S3DThumbnailGenerator.h"
+#include "../utils/Logger.h"
 
-static const uint32_t kResourceKeyType1 = 0x27812821; // RKT1
+static constexpr uint32_t kResourceKeyType1 = 0x27812821; // RKT1
 
 PropCacheManager::PropCacheManager()
     : initialized(false)

@@ -1,7 +1,10 @@
 #include "CoordinateConverter.h"
-#include "cISC43DRender.h"
-#include "../utils/Logger.h"
+
 #include <cmath>
+
+#include "cISC43DRender.h"
+#include "cS3DVector3.h"
+#include "Logger.h"
 
 bool CoordinateConverter::WorldToScreen(
     cISC43DRender* pRender,
@@ -14,8 +17,8 @@ bool CoordinateConverter::WorldToScreen(
     }
 
     // Get projection and view matrices
-    float* projMatrix = reinterpret_cast<float*>(pRender->GetProjectionMatrixEntries());
-    float* viewMatrix = reinterpret_cast<float*>(pRender->GetViewMatrixEntities());
+    const auto* projMatrix = reinterpret_cast<float*>(pRender->GetProjectionMatrixEntries());
+    const auto* viewMatrix = reinterpret_cast<float*>(pRender->GetViewMatrixEntities());
 
     if (!projMatrix || !viewMatrix) {
         LOG_DEBUG("Failed to get projection/view matrices");
@@ -31,7 +34,7 @@ bool CoordinateConverter::WorldToScreen(
     // Transform pipeline: World -> View -> Clip -> NDC -> Screen
 
     // 1. Transform world position to view space (camera space)
-    float viewVec[4] = { worldPos.fX, worldPos.fY, worldPos.fZ, 1.0f };
+    const float viewVec[4] = { worldPos.fX, worldPos.fY, worldPos.fZ, 1.0f };
     float viewResult[4];
     MultiplyMatrix4x4Vector4(viewMatrix, viewVec, viewResult);
 

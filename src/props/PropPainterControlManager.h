@@ -20,7 +20,6 @@
  */
 #pragma once
 
-#include <cstdint>
 #include "cRZAutoRefCount.h"
 #include "PropPainterInputControl.h"
 

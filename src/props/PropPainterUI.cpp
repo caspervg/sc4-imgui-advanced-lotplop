@@ -1,10 +1,12 @@
 #include "PropPainterUI.h"
-#include "PropPainterInputControl.h"
-#include "CoordinateConverter.h"
-#include "imgui.h"
-#include "cISC43DRender.h"
-#include "../utils/Logger.h"
+
 #include <cstring>
+
+#include "cISC43DRender.h"
+#include "imgui.h"
+#include "PropPainterInputControl.h"
+#include "../utils/CoordinateConverter.h"
+#include "../utils/Logger.h"
 
 PropPainterUI::PropPainterUI()
     : showWindow(false)

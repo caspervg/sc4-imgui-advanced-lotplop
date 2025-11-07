@@ -1,12 +1,11 @@
 #pragma once
-#include "cSC4BaseViewInputControl.h"
-#include "cRZAutoRefCount.h"
-#include "cS3DVector3.h"
-#include <cstdint>
 #include <string>
 
 #include "cISC4City.h"
 #include "cISC4PropManager.h"
+#include "cRZAutoRefCount.h"
+#include "cS3DVector3.h"
+#include "cSC4BaseViewInputControl.h"
 
 /**
  * @brief Preview state for rendering overlays

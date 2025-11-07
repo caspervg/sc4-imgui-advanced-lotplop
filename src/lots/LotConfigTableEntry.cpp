@@ -56,7 +56,7 @@ namespace LotConfigTable {
                 return LessForColumn(entries[static_cast<size_t>(a)], entries[static_cast<size_t>(b)], favIDs,
                                      s.ColumnIndex, ascending);
             };
-            std::stable_sort(idx.begin(), idx.end(), less);
+            std::ranges::stable_sort(idx, less);
         }
 
         return idx;

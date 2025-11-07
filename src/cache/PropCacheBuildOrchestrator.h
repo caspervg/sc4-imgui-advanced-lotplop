@@ -20,8 +20,6 @@
  */
 #pragma once
 
-#include <cstdint>
-
 class cISC4City;
 class PropCacheManager;
 class PropPainterUI;

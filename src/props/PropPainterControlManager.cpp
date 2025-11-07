@@ -19,10 +19,11 @@
  * If not, see <http://www.gnu.org/licenses/>.
  */
 #include "PropPainterControlManager.h"
-#include "PropCacheManager.h"
-#include "PropPainterUI.h"
+
 #include "cISC4City.h"
 #include "cISC4View3DWin.h"
+#include "PropPainterUI.h"
+#include "../cache/PropCacheManager.h"
 #include "../utils/Logger.h"
 
 PropPainterControlManager::PropPainterControlManager(

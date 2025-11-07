@@ -19,13 +19,15 @@
  * If not, see <http://www.gnu.org/licenses/>.
  */
 #include "LotCacheBuildOrchestrator.h"
-#include "LotCacheManager.h"
-#include "../ui/AdvancedLotPlopUI.h"
+
+#include <d3d11.h>
+
 #include "cISC4City.h"
 #include "cIGZPersistResourceManager.h"
 #include "GZServPtrs.h"
+#include "LotCacheManager.h"
+#include "../lots/AdvancedLotPlopUI.h"
 #include "../utils/Logger.h"
-#include <d3d11.h>
 
 LotCacheBuildOrchestrator::LotCacheBuildOrchestrator(
     LotCacheManager& cacheManager,

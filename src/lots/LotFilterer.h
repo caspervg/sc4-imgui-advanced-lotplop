@@ -19,9 +19,9 @@
  * If not, see <http://www.gnu.org/licenses/>.
  */
 #pragma once
-#include <vector>
-#include <unordered_map>
 #include <cstdint>
+#include <unordered_map>
+#include <vector>
 
 class cISC4LotConfiguration;
 class cISC4City;

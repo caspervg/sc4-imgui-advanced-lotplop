@@ -1,5 +1,6 @@
 #pragma once
 #include <vector>
+
 #include "LotConfigEntry.h"
 
 // Forward declare ImGui types to avoid forcing all includes here

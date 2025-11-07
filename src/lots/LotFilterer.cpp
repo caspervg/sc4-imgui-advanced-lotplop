@@ -22,15 +22,15 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cISC4BuildingOccupant.h>
 #include <string>
 
-#include "cISC4BuildingOccupant.h"
 #include "cISC4City.h"
 #include "cISC4LotConfiguration.h"
 #include "cISC4LotConfigurationManager.h"
 #include "cISC4ZoneManager.h"
 #include "SC4HashSet.h"
-#include "ui/LotConfigEntry.h"
+#include "lots/LotConfigEntry.h"
 
 void LotFilterer::FilterLots(
     cISC4City* pCity,
@@ -49,22 +49,19 @@ void LotFilterer::FilterLots(
     if (!pLotConfigMgr) return;
 
     SC4HashSet<uint32_t> configIdTable{};
-    configIdTable.Init(8);
 
     for (uint32_t x = minSizeX; x <= maxSizeX; x++) {
         for (uint32_t z = minSizeZ; z <= maxSizeZ; z++) {
             // Reset the temporary set per size to avoid accumulating IDs across iterations
-            configIdTable.Clear();
-            configIdTable.Init(8);
             if (pLotConfigMgr->GetLotConfigurationIDsBySize(configIdTable, x, z)) {
                 for (const auto it : configIdTable) {
-                    auto cacheIt = lotConfigCache.find(it->key);
+                    auto cacheIt = lotConfigCache.find(it);
                     if (cacheIt == lotConfigCache.end()) continue;
 
                     const LotConfigEntry& cachedEntry = cacheIt->second;
 
                     // Get lot config for filtering
-                    cISC4LotConfiguration* pConfig = pLotConfigMgr->GetLotConfiguration(it->key);
+                    cISC4LotConfiguration* pConfig = pLotConfigMgr->GetLotConfiguration(it);
                     if (!pConfig) continue;
 
                     // Apply filters

@@ -1,7 +1,6 @@
 #pragma once
-#include "cS3DVector3.h"
-#include <cstdint>
 
+class cS3DVector3;
 class cISC43DRender;
 
 /**

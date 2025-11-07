@@ -20,7 +20,6 @@
  */
 // ReSharper disable CppDFAUnreachableCode
 #include <d3d11.h>
-#include <deque>
 #include <string>
 #include <windows.h>
 
@@ -34,10 +33,8 @@
 #include "cIGZFrameWorkW32.h"
 #include "cIGZMessage2Standard.h"
 #include "cIGZMessageServer2.h"
-#include "cIGZPersistResourceManager.h"
 #include "cIGZVariant.h"
 #include "cIGZWin.h"
-#include "cIGZWinKeyAcceleratorRes.h"
 #include "cISC4App.h"
 #include "cISC4City.h"
 #include "cISC4View3DWin.h"
@@ -46,23 +43,21 @@
 #include "cRZBaseVariant.h"
 #include "cRZMessage2COMDirector.h"
 #include "GZServPtrs.h"
-#include "imgui_impl_dx11.h"
 #include "imgui_impl_win32.h"
-#include "SC4HashSet.h"
 #include "version.h"
-#include "cache/LotCacheManager.h"
 #include "cache/LotCacheBuildOrchestrator.h"
-#include "filter/LotFilterer.h"
-#include "proppainter/PropCacheManager.h"
-#include "proppainter/PropCacheBuildOrchestrator.h"
-#include "proppainter/PropPainterControlManager.h"
-#include "proppainter/PropPainterUI.h"
+#include "cache/LotCacheManager.h"
+#include "cache/PropCacheBuildOrchestrator.h"
+#include "cache/PropCacheManager.h"
+#include "lots/AdvancedLotPlopUI.h"
+#include "lots/LotConfigEntry.h"
+#include "lots/LotFilterer.h"
+#include "props/PropPainterControlManager.h"
+#include "props/PropPainterUI.h"
 #include "s3d/S3DRenderer.h"
-#include "ui/AdvancedLotPlopUI.h"
-#include "ui/ImGuiLifecycleManager.h"
-#include "ui/LotConfigEntry.h"
 #include "utils/Config.h"
 #include "utils/D3D11Hook.h"
+#include "utils/ImGuiLifecycleManager.h"
 #include "utils/Logger.h"
 #include "utils/ShortcutManager.h"
 

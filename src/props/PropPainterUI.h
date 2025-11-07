@@ -1,8 +1,9 @@
 #pragma once
-#include "PropCacheManager.h"
 #include <cstdint>
 #include <functional>
 #include <string>
+
+#include "../cache/PropCacheManager.h"
 
 class PropPainterInputControl;
 class cISC43DRender;

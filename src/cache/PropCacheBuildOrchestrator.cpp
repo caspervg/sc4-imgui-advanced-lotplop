@@ -19,13 +19,15 @@
  * If not, see <http://www.gnu.org/licenses/>.
  */
 #include "PropCacheBuildOrchestrator.h"
-#include "PropCacheManager.h"
-#include "PropPainterUI.h"
-#include "cISC4City.h"
-#include "cIGZPersistResourceManager.h"
-#include "GZServPtrs.h"
-#include "../utils/Logger.h"
+
 #include <d3d11.h>
+
+#include "cIGZPersistResourceManager.h"
+#include "cISC4City.h"
+#include "GZServPtrs.h"
+#include "PropCacheManager.h"
+#include "../props/PropPainterUI.h"
+#include "../utils/Logger.h"
 
 PropCacheBuildOrchestrator::PropCacheBuildOrchestrator(
     PropCacheManager& cacheManager,

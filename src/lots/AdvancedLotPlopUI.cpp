@@ -131,7 +131,7 @@ void AdvancedLotPlopUI::RenderLoadingWindow()
 
 void AdvancedLotPlopUI::Render()
 {
-	// Always render loading window if needed
+	// Always render a loading window if needed
 	RenderLoadingWindow();
 	if (!showWindow) return;
 

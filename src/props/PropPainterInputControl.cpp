@@ -1,10 +1,12 @@
 #include "PropPainterInputControl.h"
+
+#include <windows.h>
+
 #include "cISC4City.h"
 #include "cISC4PropManager.h"
 #include "cISC4View3DWin.h"
 #include "cS3DVector3.h"
 #include "../utils/Logger.h"
-#include <windows.h>
 
 // Unique ID for this control (randomly generated)
 static const uint32_t kPropPainterControlID = 0x8A3F9D2B;

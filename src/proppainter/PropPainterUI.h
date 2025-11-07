@@ -3,6 +3,9 @@
 #include <cstdint>
 #include <string>
 
+class PropPainterInputControl;
+class cISC43DRender;
+
 /**
  * @brief Callbacks for prop painter UI events
  */
@@ -65,6 +68,22 @@ public:
      */
     bool IsPaintingActive() const { return paintingActive; }
 
+    /**
+     * @brief Set the input control for preview rendering
+     */
+    void SetInputControl(PropPainterInputControl* pControl) { pInputControl = pControl; }
+
+    /**
+     * @brief Set the 3D renderer for coordinate conversion
+     */
+    void SetRenderer(cISC43DRender* pRender) { pRenderer = pRender; }
+
+    /**
+     * @brief Render preview overlay (crosshair, area boundaries, etc.)
+     * Call this after the main window render
+     */
+    void RenderPreviewOverlay();
+
 private:
     void RenderLoadingWindow();
     void RenderToolbar();
@@ -78,6 +97,8 @@ private:
     bool paintingActive;
 
     PropCacheManager* pCacheManager;
+    PropPainterInputControl* pInputControl;
+    cISC43DRender* pRenderer;
     PropPainterUICallbacks callbacks;
 
     // Loading state

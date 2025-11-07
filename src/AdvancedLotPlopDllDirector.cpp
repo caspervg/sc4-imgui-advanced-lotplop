@@ -349,6 +349,9 @@ public:
         if (pShowPropPainter && *pShowPropPainter) {
             mPropPainterUI.Render();
         }
+
+        // Render prop painter preview overlay (crosshair, info, etc.)
+        mPropPainterUI.RenderPreviewOverlay();
     }
 
 private:
@@ -553,16 +556,27 @@ private:
             return;
         }
 
+        // Get prop name from cache
+        std::string propName = "Unknown Prop";
+        const PropCacheEntry* entry = propCacheManager.GetPropByID(propID);
+        if (entry) {
+            propName = entry->name;
+        }
+
         // Create input control if it doesn't exist
         if (!pPropPainterControl) {
             pPropPainterControl = new PropPainterInputControl();
             pPropPainterControl->SetCity(pCity);
             pPropPainterControl->SetWindow(pView3D->AsIGZWin());
             pPropPainterControl->Init();
+
+            // Set up preview rendering
+            mPropPainterUI.SetInputControl(pPropPainterControl);
+            mPropPainterUI.SetRenderer(pView3D->GetRenderer());
         }
 
-        // Set the prop to paint
-        pPropPainterControl->SetPropToPaint(propID, rotation);
+        // Set the prop to paint (with name for preview)
+        pPropPainterControl->SetPropToPaint(propID, rotation, propName);
 
         // Remove all existing input controls and activate the prop painter
         pView3D->RemoveAllViewInputControls(false);
@@ -571,7 +585,7 @@ private:
             cISC4View3DWin::ViewInputControlStackOperation_None
         );
 
-        LOG_INFO("Started prop painting mode for prop 0x{:08X}, rotation {}", propID, rotation);
+        LOG_INFO("Started prop painting mode for prop {} (0x{:08X}), rotation {}", propName, propID, rotation);
     }
 
     void StopPropPainting() {

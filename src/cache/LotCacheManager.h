@@ -22,6 +22,7 @@
 #include <unordered_map>
 #include <vector>
 #include <functional>
+#include <filesystem>
 
 #include "cISCPropertyHolder.h"
 #include "cRZAutoRefCount.h"
@@ -30,6 +31,8 @@
 class cISC4City;
 class cIGZPersistResourceManager;
 struct ID3D11Device;
+struct ID3D11DeviceContext;
+class CacheDatabase;
 
 // Progress callback: stage description, current progress, total steps
 using LotCacheProgressCallback = std::function<void(const char* stage, int current, int total)>;
@@ -57,6 +60,10 @@ public:
     int GetProcessedLotCount() const { return processedLotCount; }
     int GetTotalLotCount() const { return totalLotCount; }
     bool IsLotConfigProcessingComplete() const { return processedLotCount >= totalLotCount; }
+
+    // Persistent cache (load/save to SQLite database)
+    bool LoadFromDatabase(const std::filesystem::path& dbPath, ID3D11Device* pDevice, ID3D11DeviceContext* pContext);
+    bool SaveToDatabase(const std::filesystem::path& dbPath, ID3D11Device* pDevice, ID3D11DeviceContext* pContext);
 
     // Clear all cached data
     void Clear();

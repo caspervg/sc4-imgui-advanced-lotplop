@@ -20,6 +20,7 @@
  */
 // ReSharper disable CppDFAUnreachableCode
 #include <d3d11.h>
+#include <filesystem>
 #include <string>
 #include <windows.h>
 
@@ -253,7 +254,30 @@ public:
             lotCacheBuildOrchestrator.Cancel();
         }
 
+        // Save cache to database before clearing
+        std::string userProfile = std::getenv("USERPROFILE") ? std::getenv("USERPROFILE") : "";
+        if (!userProfile.empty()) {
+            std::filesystem::path dbPath = std::filesystem::path(userProfile) / "Documents" / "SimCity 4" / "Plugins" / "AdvancedLotPlopCache.sqlite";
+
+            // Get device and context from D3D11Hook
+            ID3D11Device* pDevice = D3D11Hook::GetDevice();
+            ID3D11DeviceContext* pContext = D3D11Hook::GetContext();
+
+            if (pDevice && pContext) {
+                // Save lot cache if initialized
+                if (lotCacheManager.IsInitialized()) {
+                    lotCacheManager.SaveToDatabase(dbPath, pDevice, pContext);
+                }
+
+                // Save prop cache if initialized
+                if (propCacheManager.IsInitialized()) {
+                    propCacheManager.SaveToDatabase(dbPath, pDevice, pContext);
+                }
+            }
+        }
+
         lotCacheManager.Clear();
+        propCacheManager.Clear();
 
         // Ensure UI no longer references city resources during shutdown
         mLotPlopUI.SetCity(nullptr);
@@ -328,6 +352,27 @@ private:
     std::vector<LotConfigEntry> lotEntries;
 
     void BuildCache() {
+        // Try loading from cache database first
+        std::string userProfile = std::getenv("USERPROFILE") ? std::getenv("USERPROFILE") : "";
+        if (!userProfile.empty()) {
+            std::filesystem::path dbPath = std::filesystem::path(userProfile) / "Documents" / "SimCity 4" / "Plugins" / "AdvancedLotPlopCache.sqlite";
+
+            // Get device and context from D3D11Hook
+            ID3D11Device* pDevice = D3D11Hook::GetDevice();
+            ID3D11DeviceContext* pContext = D3D11Hook::GetContext();
+
+            if (pDevice && pContext) {
+                if (lotCacheManager.LoadFromDatabase(dbPath, pDevice, pContext)) {
+                    LOG_INFO("Successfully loaded lot cache from database");
+                    RefreshLotList(); // Refresh UI to show loaded lots
+                    return; // Cache loaded successfully, no need to rebuild
+                } else {
+                    LOG_INFO("Failed to load lot cache from database, building from scratch");
+                }
+            }
+        }
+
+        // Fall back to incremental build
         lotCacheBuildOrchestrator.StartBuildCache(pCity);
     }
 
@@ -337,6 +382,8 @@ private:
             BuildCache();
             return; // Defer filtering until the cache is ready
         }
+
+        LOG_DEBUG("RefreshLotList: cache has {} lots", lotCacheManager.GetLotConfigCache().size());
 
         LotFilterer::FilterLots(
             pCity,
@@ -349,6 +396,8 @@ private:
             mLotPlopUI.GetSearchBuffer(),
             mLotPlopUI.GetSelectedOccupantGroups()
         );
+
+        LOG_DEBUG("RefreshLotList: filtered to {} lots", lotEntries.size());
     }
 
     void ToggleWindow() {
@@ -402,6 +451,26 @@ private:
     }
 
     void BuildPropCache() {
+        // Try loading from cache database first
+        std::string userProfile = std::getenv("USERPROFILE") ? std::getenv("USERPROFILE") : "";
+        if (!userProfile.empty()) {
+            std::filesystem::path dbPath = std::filesystem::path(userProfile) / "Documents" / "SimCity 4" / "Plugins" / "AdvancedLotPlopCache.sqlite";
+
+            // Get device and context from D3D11Hook
+            ID3D11Device* pDevice = D3D11Hook::GetDevice();
+            ID3D11DeviceContext* pContext = D3D11Hook::GetContext();
+
+            if (pDevice && pContext) {
+                if (propCacheManager.LoadFromDatabase(dbPath, pDevice, pContext)) {
+                    LOG_INFO("Successfully loaded prop cache from database");
+                    return; // Cache loaded successfully, no need to rebuild
+                } else {
+                    LOG_INFO("Failed to load prop cache from database, building from scratch");
+                }
+            }
+        }
+
+        // Fall back to incremental build
         propCacheBuildOrchestrator.StartBuildCache(pCity);
     }
 

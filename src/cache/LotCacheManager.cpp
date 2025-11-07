@@ -37,8 +37,11 @@
 #include "../exemplar/IconResourceUtil.h"
 #include "../exemplar/PropertyUtil.h"
 #include "../gfx/IconLoader.h"
+#include "../gfx/DX11ImageLoader.h"
+#include "../gfx/TextureToPNG.h"
 #include "../s3d/S3DThumbnailGenerator.h"
 #include "../utils/Logger.h"
+#include "CacheDatabase.h"
 
 LotCacheManager::LotCacheManager()
     : cacheInitialized(false),
@@ -166,6 +169,11 @@ void LotCacheManager::BuildLotConfigCache(cISC4City* pCity, cIGZPersistResourceM
 
                     cRZAutoRefCount<cISCPropertyHolder> pLotExemplar;
                     if (GetCachedExemplar(lotConfigID, pLotExemplar)) {
+                        // Get exemplar group from the cached exemplar
+                        auto it = exemplarCache.find(lotConfigID);
+                        if (it != exemplarCache.end() && !it->second.empty()) {
+                            entry.exemplarGroup = it->second[0].first; // first element is (groupID, exemplar)
+                        }
                         uint32_t buildingExemplarID = 0;
                         if (GetLotBuildingExemplarID(pLotExemplar, buildingExemplarID)) {
                             cRZAutoRefCount<cISCPropertyHolder> pBuildingExemplar;
@@ -412,6 +420,11 @@ int LotCacheManager::ProcessLotConfigBatch(cIGZPersistResourceManager* pRM, ID3D
 
                 cRZAutoRefCount<cISCPropertyHolder> pLotExemplar;
                 if (GetCachedExemplar(lotConfigID, pLotExemplar)) {
+                    // Get exemplar group from the cached exemplar
+                    auto it = exemplarCache.find(lotConfigID);
+                    if (it != exemplarCache.end() && !it->second.empty()) {
+                        entry.exemplarGroup = it->second[0].first; // first element is (groupID, exemplar)
+                    }
                     uint32_t buildingExemplarID = 0;
                     if (GetLotBuildingExemplarID(pLotExemplar, buildingExemplarID)) {
                         cRZAutoRefCount<cISCPropertyHolder> pBuildingExemplar;
@@ -526,4 +539,144 @@ void LotCacheManager::FinalizeIncrementalBuild() {
     cacheInitialized = true;
     pCityForIncremental = nullptr;
     LOG_INFO("Incremental cache build finalized: {} lot entries", lotConfigCache.size());
+}
+
+bool LotCacheManager::LoadFromDatabase(const std::filesystem::path& dbPath, ID3D11Device* pDevice, ID3D11DeviceContext* pContext) {
+    if (!pDevice || !pContext) {
+        Logger::LOG_ERROR("Invalid device or context for cache loading");
+        return false;
+    }
+
+    CacheDatabase db;
+    if (!db.OpenOrCreate(dbPath)) {
+        Logger::LOG_ERROR("Failed to open cache database: {}", dbPath.string());
+        return false;
+    }
+
+    // Validate cache version
+    std::string version = db.GetMetadata("cache_version");
+    if (version != "1") {
+        Logger::LOG_WARN("Cache version mismatch (expected 1, got {}), rebuild required", version);
+        return false;
+    }
+
+    // Load all lot keys
+    auto keys = db.GetAllLotKeys();
+    if (keys.empty()) {
+        Logger::LOG_WARN("Cache database is empty");
+        return false;
+    }
+
+    Logger::LOG_INFO("Loading {} lots from cache database...", keys.size());
+
+    int loadedCount = 0;
+    for (auto [group, instance] : keys) {
+        auto result = db.LoadLot(group, instance);
+        if (!result) {
+            Logger::LOG_WARN("Failed to load lot {}/{} from database", group, instance);
+            continue;
+        }
+
+        auto& [lot, pngBlob] = *result;
+
+        // Create texture from PNG BLOB
+        if (!pngBlob.empty()) {
+            ID3D11ShaderResourceView* srv = nullptr;
+            int w = 0, h = 0;
+            if (gfx::CreateSRVFromPNGMemory(pngBlob.data(), pngBlob.size(), pDevice, &srv, &w, &h)) {
+                lot.iconSRV = srv;
+                lot.iconWidth = w;
+                lot.iconHeight = h;
+            } else {
+                Logger::LOG_WARN("Failed to decode PNG thumbnail for lot {}", lot.id);
+            }
+        }
+
+        // Store in cache (lot.id IS the instance ID)
+        lotConfigCache[lot.id] = std::move(lot);
+        loadedCount++;
+    }
+
+    cacheInitialized = (loadedCount > 0);
+    Logger::LOG_INFO("Loaded {} lots from cache database in {}", loadedCount, dbPath.string());
+    return cacheInitialized;
+}
+
+bool LotCacheManager::SaveToDatabase(const std::filesystem::path& dbPath, ID3D11Device* pDevice, ID3D11DeviceContext* pContext) {
+    if (!pDevice || !pContext) {
+        Logger::LOG_ERROR("Invalid device or context for cache saving");
+        return false;
+    }
+
+    if (!cacheInitialized || lotConfigCache.empty()) {
+        Logger::LOG_WARN("Cache not initialized or empty, nothing to save");
+        return false;
+    }
+
+    CacheDatabase db;
+    if (!db.OpenOrCreate(dbPath)) {
+        Logger::LOG_ERROR("Failed to open cache database for saving: {}", dbPath.string());
+        return false;
+    }
+
+    Logger::LOG_INFO("Saving {} lots to cache database...", lotConfigCache.size());
+
+    // Use transaction for bulk insert (much faster)
+    if (!db.BeginTransaction()) {
+        Logger::LOG_ERROR("Failed to begin transaction");
+        return false;
+    }
+
+    int savedCount = 0;
+    int thumbnailCount = 0;
+    for (const auto& [id, lot] : lotConfigCache) {
+        // Encode thumbnail to PNG
+        std::vector<uint8_t> pngBlob;
+        if (lot.iconSRV) {
+            ID3D11Resource* resource = nullptr;
+            lot.iconSRV->GetResource(&resource);
+            if (resource) {
+                ID3D11Texture2D* texture = nullptr;
+                HRESULT hr = resource->QueryInterface(__uuidof(ID3D11Texture2D),
+                                                       reinterpret_cast<void**>(&texture));
+                if (SUCCEEDED(hr) && texture) {
+                    if (TextureToPNG::Encode(pDevice, pContext, texture, pngBlob)) {
+                        thumbnailCount++;
+                    } else {
+                        Logger::LOG_WARN("Failed to encode PNG thumbnail for lot 0x{:08X}", id);
+                    }
+                    texture->Release();
+                }
+                resource->Release();
+            }
+        }
+
+        // Save to database
+        if (db.SaveLot(lot, pngBlob)) {
+            savedCount++;
+        } else {
+            Logger::LOG_ERROR("Failed to save lot 0x{:08X} to database", id);
+        }
+    }
+
+    // Set metadata
+    db.SetMetadata("cache_version", "1");
+
+    // Get current timestamp
+    auto now = std::chrono::system_clock::now();
+    auto time_t_now = std::chrono::system_clock::to_time_t(now);
+    std::tm tm_now;
+    localtime_s(&tm_now, &time_t_now);
+    char timestamp[32];
+    std::strftime(timestamp, sizeof(timestamp), "%Y-%m-%dT%H:%M:%S", &tm_now);
+    db.SetMetadata("last_build", timestamp);
+    db.SetMetadata("lot_count", std::to_string(savedCount));
+
+    if (!db.CommitTransaction()) {
+        Logger::LOG_ERROR("Failed to commit transaction");
+        return false;
+    }
+
+    Logger::LOG_INFO("Saved {} lots ({} with thumbnails) to cache database: {}", savedCount, thumbnailCount, dbPath.string());
+    return true;
 }

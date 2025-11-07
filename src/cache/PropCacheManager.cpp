@@ -13,7 +13,10 @@
 #include "SC4Vector.h"
 #include "../exemplar/PropertyUtil.h"
 #include "../s3d/S3DThumbnailGenerator.h"
+#include "../gfx/DX11ImageLoader.h"
+#include "../gfx/TextureToPNG.h"
 #include "../utils/Logger.h"
+#include "CacheDatabase.h"
 
 static constexpr uint32_t kResourceKeyType1 = 0x27812821; // RKT1
 
@@ -186,6 +189,7 @@ bool PropCacheManager::ProcessPropEntry(
     }
 
     entry.exemplarIID = exemplarKey.instance;
+    entry.exemplarGroup = exemplarKey.group;
 
     // Load the prop exemplar
     cRZAutoRefCount<cISCPropertyHolder> pPropExemplar;
@@ -285,4 +289,146 @@ const PropCacheEntry* PropCacheManager::GetPropByID(uint32_t propID) const {
         return &props[it->second];
     }
     return nullptr;
+}
+
+bool PropCacheManager::LoadFromDatabase(const std::filesystem::path& dbPath, ID3D11Device* pDevice, ID3D11DeviceContext* pContext) {
+    if (!pDevice || !pContext) {
+        Logger::LOG_ERROR("Invalid device or context for prop cache loading");
+        return false;
+    }
+
+    CacheDatabase db;
+    if (!db.OpenOrCreate(dbPath)) {
+        Logger::LOG_ERROR("Failed to open cache database: {}", dbPath.string());
+        return false;
+    }
+
+    // Validate cache version
+    std::string version = db.GetMetadata("cache_version");
+    if (version != "1") {
+        Logger::LOG_WARN("Cache version mismatch (expected 1, got {}), rebuild required", version);
+        return false;
+    }
+
+    // Load all prop keys
+    auto keys = db.GetAllPropKeys();
+    if (keys.empty()) {
+        Logger::LOG_WARN("Cache database has no props");
+        return false;
+    }
+
+    Logger::LOG_INFO("Loading {} props from cache database...", keys.size());
+
+    int loadedCount = 0;
+    for (auto [group, instance] : keys) {
+        auto result = db.LoadProp(group, instance);
+        if (!result) {
+            Logger::LOG_WARN("Failed to load prop {}/{} from database", group, instance);
+            continue;
+        }
+
+        auto& [prop, pngBlob] = *result;
+
+        // Create texture from PNG BLOB
+        if (!pngBlob.empty()) {
+            ID3D11ShaderResourceView* srv = nullptr;
+            int w = 0, h = 0;
+            if (gfx::CreateSRVFromPNGMemory(pngBlob.data(), pngBlob.size(), pDevice, &srv, &w, &h)) {
+                prop.iconSRV = srv;
+                prop.iconWidth = w;
+                prop.iconHeight = h;
+            } else {
+                Logger::LOG_WARN("Failed to decode PNG thumbnail for prop {}", prop.propID);
+            }
+        }
+
+        // Store in cache
+        size_t index = props.size();
+        props.push_back(std::move(prop));
+        propIDToIndex[props[index].propID] = index;
+        loadedCount++;
+    }
+
+    initialized = (loadedCount > 0);
+    Logger::LOG_INFO("Loaded {} props from cache database in {}", loadedCount, dbPath.string());
+    return initialized;
+}
+
+bool PropCacheManager::SaveToDatabase(const std::filesystem::path& dbPath, ID3D11Device* pDevice, ID3D11DeviceContext* pContext) {
+    if (!pDevice || !pContext) {
+        Logger::LOG_ERROR("Invalid device or context for prop cache saving");
+        return false;
+    }
+
+    if (!initialized || props.empty()) {
+        Logger::LOG_WARN("Prop cache not initialized or empty, nothing to save");
+        return false;
+    }
+
+    CacheDatabase db;
+    if (!db.OpenOrCreate(dbPath)) {
+        Logger::LOG_ERROR("Failed to open cache database for saving: {}", dbPath.string());
+        return false;
+    }
+
+    Logger::LOG_INFO("Saving {} props to cache database...", props.size());
+
+    // Use transaction for bulk insert (much faster)
+    if (!db.BeginTransaction()) {
+        Logger::LOG_ERROR("Failed to begin transaction");
+        return false;
+    }
+
+    int savedCount = 0;
+    int thumbnailCount = 0;
+    for (const auto& prop : props) {
+        // Encode thumbnail to PNG
+        std::vector<uint8_t> pngBlob;
+        if (prop.iconSRV) {
+            ID3D11Resource* resource = nullptr;
+            prop.iconSRV->GetResource(&resource);
+            if (resource) {
+                ID3D11Texture2D* texture = nullptr;
+                HRESULT hr = resource->QueryInterface(__uuidof(ID3D11Texture2D),
+                                                       reinterpret_cast<void**>(&texture));
+                if (SUCCEEDED(hr) && texture) {
+                    if (TextureToPNG::Encode(pDevice, pContext, texture, pngBlob)) {
+                        thumbnailCount++;
+                    } else {
+                        Logger::LOG_WARN("Failed to encode PNG thumbnail for prop 0x{:08X}", prop.propID);
+                    }
+                    texture->Release();
+                }
+                resource->Release();
+            }
+        }
+
+        // Save to database
+        if (db.SaveProp(prop, pngBlob)) {
+            savedCount++;
+        } else {
+            Logger::LOG_ERROR("Failed to save prop 0x{:08X} to database", prop.propID);
+        }
+    }
+
+    // Set metadata
+    db.SetMetadata("cache_version", "1");
+
+    // Get current timestamp
+    auto now = std::chrono::system_clock::now();
+    auto time_t_now = std::chrono::system_clock::to_time_t(now);
+    std::tm tm_now;
+    localtime_s(&tm_now, &time_t_now);
+    char timestamp[32];
+    std::strftime(timestamp, sizeof(timestamp), "%Y-%m-%dT%H:%M:%S", &tm_now);
+    db.SetMetadata("last_build", timestamp);
+    db.SetMetadata("prop_count", std::to_string(savedCount));
+
+    if (!db.CommitTransaction()) {
+        Logger::LOG_ERROR("Failed to commit transaction");
+        return false;
+    }
+
+    Logger::LOG_INFO("Saved {} props ({} with thumbnails) to cache database: {}", savedCount, thumbnailCount, dbPath.string());
+    return true;
 }

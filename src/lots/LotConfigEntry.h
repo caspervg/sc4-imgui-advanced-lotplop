@@ -14,12 +14,15 @@ struct LotConfigEntry {
         S3D = 2         // S3D thumbnail (square, typically 64x64)
     };
 
-    uint32_t id;
+    uint32_t id; // Lot instance ID (same as exemplar instance ID)
     std::string name;
     std::string description; // Item Description (localized if available)
     uint32_t sizeX, sizeZ;
     uint16_t minCapacity, maxCapacity;
     uint8_t growthStage;
+
+    // Exemplar resource key (for cache persistence)
+    uint32_t exemplarGroup = 0; // Exemplar group ID (id field IS the exemplar instance)
 
     // Building classification
     std::unordered_set<uint32_t> occupantGroups; // Raw occupant group IDs

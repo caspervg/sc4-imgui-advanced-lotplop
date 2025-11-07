@@ -60,7 +60,7 @@ void Logger::Initialize(const std::string &logName, const std::string &userDir)
         }
 
         s_logger = std::make_shared<spdlog::logger>(s_logName, sinks.begin(), sinks.end());
-        s_logger->set_level(spdlog::level::info);
+        s_logger->set_level(spdlog::level::debug);
         s_logger->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%n] [%l] %v");
         s_logger->flush_on(spdlog::level::info); // Flush on every log message
 

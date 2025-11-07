@@ -49,6 +49,9 @@ void LotFilterer::FilterLots(
     if (!pLotConfigMgr) return;
 
     SC4HashSet<uint32_t> configIdTable{};
+    int totalLotConfigsFound = 0;
+    int cacheHits = 0;
+    int cacheMisses = 0;
 
     for (uint32_t x = minSizeX; x <= maxSizeX; x++) {
         for (uint32_t z = minSizeZ; z <= maxSizeZ; z++) {
@@ -56,9 +59,14 @@ void LotFilterer::FilterLots(
 			configIdTable = {};
 
             if (pLotConfigMgr->GetLotConfigurationIDsBySize(configIdTable, x, z)) {
+                totalLotConfigsFound += configIdTable.size();
                 for (const auto it : configIdTable) {
                     auto cacheIt = lotConfigCache.find(it);
-                    if (cacheIt == lotConfigCache.end()) continue;
+                    if (cacheIt == lotConfigCache.end()) {
+                        cacheMisses++;
+                        continue;
+                    }
+                    cacheHits++;
 
                     const LotConfigEntry& cachedEntry = cacheIt->second;
 

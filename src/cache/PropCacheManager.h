@@ -3,6 +3,7 @@
 #include <functional>
 #include <map>
 #include <vector>
+#include <filesystem>
 
 #include "../props/PropCacheEntry.h"
 
@@ -118,6 +119,24 @@ public:
      * @brief Get the prop manager (for family queries)
      */
     cISC4PropManager* GetPropManager() const { return pPropManager; }
+
+    /**
+     * @brief Load props from persistent cache database
+     * @param dbPath Path to SQLite database file
+     * @param pDevice D3D11 device for texture creation
+     * @param pContext D3D11 device context
+     * @return true if successful, false otherwise
+     */
+    bool LoadFromDatabase(const std::filesystem::path& dbPath, ID3D11Device* pDevice, ID3D11DeviceContext* pContext);
+
+    /**
+     * @brief Save props to persistent cache database
+     * @param dbPath Path to SQLite database file
+     * @param pDevice D3D11 device for texture encoding
+     * @param pContext D3D11 device context
+     * @return true if successful, false otherwise
+     */
+    bool SaveToDatabase(const std::filesystem::path& dbPath, ID3D11Device* pDevice, ID3D11DeviceContext* pContext);
 
 private:
     bool LoadPropsFromManager(

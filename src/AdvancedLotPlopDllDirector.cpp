@@ -59,6 +59,7 @@
 #include "proppainter/PropPainterUI.h"
 #include "s3d/S3DRenderer.h"
 #include "ui/AdvancedLotPlopUI.h"
+#include "ui/ImGuiLifecycleManager.h"
 #include "ui/LotConfigEntry.h"
 #include "utils/Config.h"
 #include "utils/D3D11Hook.h"
@@ -137,12 +138,7 @@ public:
         lotCacheManager.Clear();
         propCacheManager.Clear();
 
-        if (imGuiInitialized) {
-            ImGui_ImplDX11_Shutdown();
-            ImGui_ImplWin32_Shutdown();
-            ImGui::DestroyContext();
-            imGuiInitialized = false;
-        }
+        imGuiLifecycle.Shutdown();
         D3D11Hook::Shutdown();
 
         Logger::Shutdown();
@@ -186,15 +182,14 @@ public:
             }
         }
 
-        // Get the game window from framework
-        if (!imGuiInitialized) {
+        // Initialize ImGui if not already done
+        if (!imGuiLifecycle.IsWin32Initialized()) {
             HWND hGameWindow = nullptr;
 
             // Query framework for Windows-specific interface
             cRZAutoRefCount<cIGZFrameWorkW32> pFrameworkW32;
             if (mpFrameWork->QueryInterface(GZIID_cIGZFrameWorkW32, pFrameworkW32.AsPPVoid())) {
-            	if (!pFrameworkW32)
-            	{
+            	if (!pFrameworkW32) {
             		LOG_ERROR("Failed to get framework W32 interface");
             		return;
             	}
@@ -204,15 +199,13 @@ public:
             if (hGameWindow && IsWindow(hGameWindow)) {
                 LOG_INFO("Got game window from framework: 0x{:X}", reinterpret_cast<uintptr_t>(hGameWindow));
 
-                ImGui::CreateContext();
+                // Initialize D3D11 hook and ImGui Win32 backend
                 if (D3D11Hook::Initialize(hGameWindow)) {
                     LOG_INFO("D3D11Hook initialized successfully");
                     D3D11Hook::SetPresentCallback(OnImGuiRender);
-                    ImGui_ImplWin32_Init(hGameWindow); // Win32 backend now; DX11 renderer later
-                    imGuiInitialized = true;
+                    imGuiLifecycle.InitializeWin32(hGameWindow);
                 } else {
                     LOG_WARN("D3D11Hook failed - ImGui will not be available");
-                    ImGui::DestroyContext();
                 }
             } else {
                 LOG_ERROR("Failed to get game window from framework");
@@ -318,13 +311,14 @@ private:
     LotCacheBuildOrchestrator lotCacheBuildOrchestrator;
     PropCacheBuildOrchestrator propCacheBuildOrchestrator;
 
+    // ImGui lifecycle manager
+    ImGuiLifecycleManager imGuiLifecycle;
+
     // Filtered lot list (populated by RefreshLotList)
     std::vector<LotConfigEntry> lotEntries;
 
     // Prop painter input control
     cRZAutoRefCount<PropPainterInputControl> pPropPainterControl;
-
-    bool imGuiInitialized = false;
 
     void RegisterToggleShortcut() {
         if (!pView3D) return;
@@ -531,24 +525,23 @@ private:
         ID3D11Device *pDevice,
         ID3D11DeviceContext *pContext,
         IDXGISwapChain *pSwapChain) {
-        static bool initialized = false;
         static ID3D11RenderTargetView *pRTV = nullptr;
+
+        auto pDirector = GetLotPlopDirector();
+        if (!pDirector) return;
 
         // If ImGui context has been destroyed, skip rendering safely
         if (ImGui::GetCurrentContext() == nullptr) {
             return;
         }
 
-        // Lazy initialize renderer backend
-        if (!initialized) {
-            HWND hWnd = D3D11Hook::GetGameWindow();
-            if (hWnd && pDevice && pContext) {
-                ImGui_ImplDX11_Init(pDevice, pContext);
-                initialized = true;
-                LOG_INFO("ImGui DX11 backend initialized in render callback");
+        // Lazy initialize DX11 backend if needed
+        if (!pDirector->imGuiLifecycle.IsDX11Initialized()) {
+            if (pDevice && pContext) {
+                pDirector->imGuiLifecycle.InitializeDX11(pDevice, pContext);
             }
         }
-        if (!initialized) return;
+        if (!pDirector->imGuiLifecycle.IsFullyInitialized()) return;
 
         // Create RTV once from swap chain
         if (!pRTV && pSwapChain) {
@@ -564,20 +557,15 @@ private:
             pContext->OMSetRenderTargets(1, &pRTV, nullptr);
         }
 
-        // Frame setup
-        ImGui_ImplDX11_NewFrame();
-        ImGui_ImplWin32_NewFrame();
-        ImGui::NewFrame();
+        // Begin ImGui frame
+        pDirector->imGuiLifecycle.BeginFrame();
 
-        auto pDirector = GetLotPlopDirector();
-        if (pDirector) {
-            pDirector->Update();   // Business logic update
-            pDirector->RenderUI();
-        }
+        // Business logic and UI rendering
+        pDirector->Update();
+        pDirector->RenderUI();
 
-        // Render
-        ImGui::Render();
-        ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
+        // End ImGui frame
+        pDirector->imGuiLifecycle.EndFrame();
     }
 };
 

@@ -64,6 +64,7 @@
 #include "utils/Config.h"
 #include "utils/D3D11Hook.h"
 #include "utils/Logger.h"
+#include "utils/ShortcutManager.h"
 
 class AdvancedLotPlopDllDirector;
 static constexpr uint32_t kMessageCheatIssued = 0x230E27AC;
@@ -176,7 +177,13 @@ public:
                         kGZWin_SC4View3DWin,
                         kGZIID_cISC4View3DWin,
                         reinterpret_cast<void **>(&pView3D))) {
-                        RegisterToggleShortcut();
+                        // Register shortcuts
+                        shortcutManager.RegisterShortcuts(
+                            pView3D,
+                            pMS2,
+                            this,
+                            {kToggleLotPlopWindowShortcutID, kTogglePropPainterWindowShortcutID}
+                        );
                     }
                 }
             }
@@ -242,8 +249,11 @@ public:
     }
 
     void PreCityShutdown(cIGZMessage2Standard *pStandardMsg) {
-        // Unregister our shortcut notifications
-        UnregisterToggleShortcut();
+        // Unregister shortcut notifications
+        shortcutManager.UnregisterShortcuts(
+            this,
+            {kToggleLotPlopWindowShortcutID, kTogglePropPainterWindowShortcutID}
+        );
 
         // Cancel any pending incremental cache build
         if (lotCacheBuildOrchestrator.IsBuilding()) {
@@ -314,38 +324,14 @@ private:
     // ImGui lifecycle manager
     ImGuiLifecycleManager imGuiLifecycle;
 
+    // Shortcut manager
+    ShortcutManager shortcutManager{kKeyConfigType, kKeyConfigGroup, kKeyConfigInstance};
+
     // Filtered lot list (populated by RefreshLotList)
     std::vector<LotConfigEntry> lotEntries;
 
     // Prop painter input control
     cRZAutoRefCount<PropPainterInputControl> pPropPainterControl;
-
-    void RegisterToggleShortcut() {
-        if (!pView3D) return;
-        cIGZPersistResourceManagerPtr pRM;
-        if (pRM) {
-            cRZAutoRefCount<cIGZWinKeyAcceleratorRes> pAcceleratorRes;
-            const cGZPersistResourceKey key(kKeyConfigType, kKeyConfigGroup, kKeyConfigInstance);
-            if (pRM->GetPrivateResource(key, kGZIID_cIGZWinKeyAcceleratorRes, pAcceleratorRes.AsPPVoid(), 0, nullptr)) {
-                auto *pAccel = pView3D->GetKeyAccelerator();
-                if (pAccel) {
-                    pAcceleratorRes->RegisterResources(pAccel);
-                    if (pMS2) {
-                        pMS2->AddNotification(this, kToggleLotPlopWindowShortcutID);
-                        pMS2->AddNotification(this, kTogglePropPainterWindowShortcutID);
-                    }
-                }
-            }
-        }
-    }
-
-    void UnregisterToggleShortcut() {
-        cIGZMessageServer2Ptr pMS2Local;
-        if (pMS2Local) {
-            pMS2Local->RemoveNotification(this, kToggleLotPlopWindowShortcutID);
-            pMS2Local->RemoveNotification(this, kTogglePropPainterWindowShortcutID);
-        }
-    }
 
     void BuildCache() {
         ID3D11Device* pDevice = D3D11Hook::GetDevice();

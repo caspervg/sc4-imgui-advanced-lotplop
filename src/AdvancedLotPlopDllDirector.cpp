@@ -90,10 +90,7 @@ AdvancedLotPlopDllDirector *GetLotPlopDirector();
 class AdvancedLotPlopDllDirector final : public cRZMessage2COMDirector {
 public:
     AdvancedLotPlopDllDirector()
-        : pCheatCodeManager(nullptr),
-          pCity(nullptr),
-          pView3D(nullptr),
-          lotCacheBuildOrchestrator(lotCacheManager, mLotPlopUI),
+        : lotCacheBuildOrchestrator(lotCacheManager, mLotPlopUI),
           propCacheBuildOrchestrator(propCacheManager, mPropPaintUI),
           propPainterControlManager(propCacheManager, mPropPaintUI) {
         std::string userDir;
@@ -266,12 +263,9 @@ public:
         // Ensure UI no longer references city resources during shutdown
         mLotPlopUI.SetCity(nullptr);
 
-        cISC4View3DWin *localView3D = pView3D;
+        // Reset COM pointers (cRZAutoRefCount handles Release() automatically)
+        pCity = nullptr;
         pView3D = nullptr;
-
-        if (localView3D) {
-            localView3D->Release();
-        }
     }
 
     void Update() {
@@ -305,10 +299,10 @@ public:
     }
 
 private:
-    cIGZCheatCodeManager *pCheatCodeManager;
-    cISC4City *pCity;
-    cISC4View3DWin *pView3D;
-    cIGZMessageServer2 *pMS2;
+    cRZAutoRefCount<cIGZCheatCodeManager> pCheatCodeManager;
+    cRZAutoRefCount<cISC4City> pCity;
+    cISC4View3DWin* pView3D;
+    cRZAutoRefCount<cIGZMessageServer2> pMS2;
 
     // Services
     LotCacheManager lotCacheManager;

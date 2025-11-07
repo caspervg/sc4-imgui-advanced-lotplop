@@ -22,10 +22,10 @@
 
 #include <cstdint>
 #include "cRZAutoRefCount.h"
+#include "PropPainterInputControl.h"
 
 class PropCacheManager;
 class PropPainterUI;
-class PropPainterInputControl;
 class cISC4City;
 class cISC4View3DWin;
 

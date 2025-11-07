@@ -21,7 +21,6 @@
 #include "PropPainterControlManager.h"
 #include "PropCacheManager.h"
 #include "PropPainterUI.h"
-#include "PropPainterInputControl.h"
 #include "cISC4City.h"
 #include "cISC4View3DWin.h"
 #include "../utils/Logger.h"

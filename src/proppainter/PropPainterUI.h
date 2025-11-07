@@ -1,6 +1,7 @@
 #pragma once
 #include "PropCacheManager.h"
 #include <cstdint>
+#include <functional>
 #include <string>
 
 class PropPainterInputControl;
@@ -10,9 +11,9 @@ class cISC43DRender;
  * @brief Callbacks for prop painter UI events
  */
 struct PropPainterUICallbacks {
-    void (*OnStartPainting)(uint32_t propID, int rotation) = nullptr;
-    void (*OnStopPainting)() = nullptr;
-    void (*OnBuildCache)() = nullptr;
+    std::function<void(uint32_t, int)> OnStartPainting = nullptr;
+    std::function<void()> OnStopPainting = nullptr;
+    std::function<void()> OnBuildCache = nullptr;
 };
 
 /**

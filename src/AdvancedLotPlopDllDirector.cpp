@@ -53,6 +53,7 @@
 #include "cache/LotCacheManager.h"
 #include "filter/LotFilterer.h"
 #include "proppainter/PropCacheManager.h"
+#include "proppainter/PropCacheBuildOrchestrator.h"
 #include "proppainter/PropPainterInputControl.h"
 #include "proppainter/PropPainterUI.h"
 #include "s3d/S3DRenderer.h"
@@ -88,7 +89,8 @@ public:
     AdvancedLotPlopDllDirector()
         : pCheatCodeManager(nullptr),
           pCity(nullptr),
-          pView3D(nullptr) {
+          pView3D(nullptr),
+          propCacheBuildOrchestrator(propCacheManager, mPropPaintUI) {
         std::string userDir;
         cISC4AppPtr pSC4App;
         if (pSC4App) {
@@ -357,6 +359,9 @@ private:
     AdvancedLotPlopUI mLotPlopUI;
     PropPainterUI mPropPaintUI;
 
+    // Orchestrators
+    PropCacheBuildOrchestrator propCacheBuildOrchestrator;
+
     // Filtered lot list (populated by RefreshLotList)
     std::vector<LotConfigEntry> lotEntries;
 
@@ -490,41 +495,8 @@ private:
     }
 
     void BuildPropCache() {
-        if (!pCity) {
-            LOG_ERROR("Cannot build prop cache: no city loaded");
-            return;
-        }
-
-        LOG_INFO("Building prop cache...");
-        mPropPaintUI.ShowLoadingWindow(true);
-        mPropPaintUI.UpdateLoadingProgress("Initializing...", 0, 0);
-
-        cIGZPersistResourceManagerPtr pRM;
-
-        auto progressCallback = [this](const char* stage, int current, int total) {
-            mPropPaintUI.UpdateLoadingProgress(stage, current, total);
-        };
-
-    	ID3D11Device* pDevice = D3D11Hook::GetDevice();
-    	ID3D11DeviceContext* pContext = nullptr;
-    	if (pDevice)
-    	{
-    		pDevice->GetImmediateContext(&pContext);
-    	} else
-    	{
-    		LOG_ERROR("Failed to get device context to build prop cache");
-    		return;
-    	}
-
-        const bool success = propCacheManager.Initialize(pCity, pRM, pDevice, pContext, progressCallback);
-
-        mPropPaintUI.ShowLoadingWindow(false);
-
-        if (success) {
-            LOG_INFO("Prop cache built successfully with {} props", propCacheManager.GetPropCount());
-        } else {
-            LOG_ERROR("Failed to build prop cache");
-        }
+        ID3D11Device* pDevice = D3D11Hook::GetDevice();
+        propCacheBuildOrchestrator.BuildCache(pCity, pDevice);
     }
 
     void StartPropPainting(uint32_t propID, int rotation) {

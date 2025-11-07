@@ -53,6 +53,8 @@ void LotFilterer::FilterLots(
     for (uint32_t x = minSizeX; x <= maxSizeX; x++) {
         for (uint32_t z = minSizeZ; z <= maxSizeZ; z++) {
             // Reset the temporary set per size to avoid accumulating IDs across iterations
+			configIdTable = {};
+
             if (pLotConfigMgr->GetLotConfigurationIDsBySize(configIdTable, x, z)) {
                 for (const auto it : configIdTable) {
                     auto cacheIt = lotConfigCache.find(it);

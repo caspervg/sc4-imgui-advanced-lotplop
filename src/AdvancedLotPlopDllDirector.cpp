@@ -332,7 +332,7 @@ private:
     void RefreshLotList() {
         if (!lotCacheManager.IsInitialized()) {
             BuildCache();
-            return; // Defer filtering until cache is ready
+            return; // Defer filtering until the cache is ready
         }
 
         LotFilterer::FilterLots(

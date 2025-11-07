@@ -205,7 +205,6 @@ void LotCacheManager::BuildLotConfigCache(cISC4City* pCity, cIGZPersistResourceM
                                 }
 
                                 // If no PNG icon loaded, try S3D thumbnail as fallback
-                                // This is particularly useful for growable lots which often lack menu icons
                                 if (entry.iconType == LotConfigEntry::IconType::None && pDevice) {
                                     // Get device context for rendering
                                     ID3D11DeviceContext* pContext = nullptr;
@@ -214,13 +213,13 @@ void LotCacheManager::BuildLotConfigCache(cISC4City* pCity, cIGZPersistResourceM
                                     if (pContext) {
                                         // Generate S3D thumbnail (64x64, zoom 5, rotation 0 for standard view)
                                         ID3D11ShaderResourceView* s3dSRV = S3D::ThumbnailGenerator::GenerateThumbnailFromExemplar(
-                                            pBuildingExemplar, pRM, pDevice, pContext, 64, 5, 0
+                                            pBuildingExemplar, pRM, pDevice, pContext, 44, 5, 0
                                         );
 
                                         if (s3dSRV) {
                                             entry.iconSRV = s3dSRV;
-                                            entry.iconWidth = 64;
-                                            entry.iconHeight = 64;
+                                            entry.iconWidth = 44;
+                                            entry.iconHeight = 44;
                                             entry.iconType = LotConfigEntry::IconType::S3D;
                                             LOG_DEBUG("Generated S3D thumbnail for lot 0x{:08X} ({})", lotConfigID, entry.name);
                                         }

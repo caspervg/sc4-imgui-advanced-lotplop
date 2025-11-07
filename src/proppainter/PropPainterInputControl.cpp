@@ -110,7 +110,7 @@ bool PropPainterInputControl::PlacePropAt(int32_t screenX, int32_t screenZ) {
         propIDToPaint, position.fX, position.fY, position.fZ, rotationToPaint*90.0f);
 
     // Add the prop to the city
-    bool success = propManager->AddCityProp(propIDToPaint, position, rotationToPaint*90.0f);
+    bool success = propManager->AddCityProp(propIDToPaint, position, rotationToPaint);
 
     if (success) {
         LOG_INFO("Successfully placed prop");

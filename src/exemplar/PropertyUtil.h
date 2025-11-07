@@ -22,6 +22,7 @@
 #pragma once
 #include "cIGZString.h"
 #include "cISCPropertyHolder.h"
+#include "cGZPersistResourceKey.h"
 #include "cRZAutoRefCount.h"
 
 namespace PropertyUtil
@@ -42,4 +43,16 @@ namespace PropertyUtil
     bool GetItemDescription(
         const cISCPropertyHolder* pPropertyHolder,
         cIGZString& description);
+
+    /**
+     * @brief Get a resource key (TGI) from a property
+     * @param pPropertyHolder The property holder to query
+     * @param propertyID The property ID to read
+     * @param outKey Output resource key
+     * @return true if successful
+     */
+    bool GetPropertyResourceKey(
+        const cISCPropertyHolder* pPropertyHolder,
+        uint32_t propertyID,
+        cGZPersistResourceKey& outKey);
 };

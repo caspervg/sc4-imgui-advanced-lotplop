@@ -57,6 +57,9 @@
 #include "utils/Logger.h"
 #include "s3d/S3DReader.h"
 #include "s3d/S3DRenderer.h"
+#include "proppainter/PropCacheManager.h"
+#include "proppainter/PropPainterUI.h"
+#include "proppainter/PropPainterInputControl.h"
 #include <deque>
 #include "cIGZPersistDBRecord.h"
 #include "cISCProperty.h"
@@ -74,6 +77,7 @@ static constexpr uint32_t kLotPlopCheatID = 0x4AC096C6;
 
 // Hotkey/message ID to toggle the ImGui window (unique)
 static constexpr uint32_t kToggleLotPlopWindowShortcutID = 0x9F21C3A1;
+static constexpr uint32_t kTogglePropPainterWindowShortcutID = 0x8B4A7F2E;
 
 // Private KeyConfig resource to register our hotkey accelerators (same pattern as BulldozeExtensions)
 static constexpr uint32_t kKeyConfigType = 0xA2E3D533;
@@ -110,12 +114,27 @@ public:
         cb.OnRefreshList = []() { if (GetLotPlopDirector()) GetLotPlopDirector()->RefreshLotList(); };
         mUI.SetCallbacks(cb);
         mUI.SetLotEntries(&lotEntries);
+
+        // Wire prop painter UI callbacks
+        PropPainterUICallbacks propCb{};
+        propCb.OnStartPainting = [](uint32_t propID, int rotation) {
+            if (GetLotPlopDirector()) GetLotPlopDirector()->StartPropPainting(propID, rotation);
+        };
+        propCb.OnStopPainting = []() {
+            if (GetLotPlopDirector()) GetLotPlopDirector()->StopPropPainting();
+        };
+        propCb.OnBuildCache = []() {
+            if (GetLotPlopDirector()) GetLotPlopDirector()->BuildPropCache();
+        };
+        mPropPainterUI.SetCallbacks(propCb);
+        mPropPainterUI.SetPropCacheManager(&propCacheManager);
     }
 
     ~AdvancedLotPlopDllDirector() override {
         LOG_INFO("~AdvancedLotPlopDllDirector()");
 
         lotCacheManager.Clear();
+        propCacheManager.Clear();
 
         // Clean up S3D thumbnail
         if (s3dThumbnailSRV) {
@@ -324,6 +343,15 @@ public:
             mUI.Render();
         	RenderS3DThumbnailWindow();
         }
+
+        // Render prop painter window independently
+        bool *pShowPropPainter = mPropPainterUI.GetShowWindowPtr();
+        if (pShowPropPainter && *pShowPropPainter) {
+            mPropPainterUI.Render();
+        }
+
+        // Render prop painter preview overlay (crosshair, info, etc.)
+        mPropPainterUI.RenderPreviewOverlay();
     }
 
 private:
@@ -334,12 +362,17 @@ private:
 
     // Services
     LotCacheManager lotCacheManager;
+    PropCacheManager propCacheManager;
 
     // UI facade
     AdvancedLotPlopUI mUI;
+    PropPainterUI mPropPainterUI;
 
     // Filtered lot list (populated by RefreshLotList)
     std::vector<LotConfigEntry> lotEntries;
+
+    // Prop painter input control
+    cRZAutoRefCount<PropPainterInputControl> pPropPainterControl;
 
     bool imGuiInitialized = false;
 
@@ -377,6 +410,7 @@ private:
                     pAcceleratorRes->RegisterResources(pAccel);
                     if (pMS2) {
                         pMS2->AddNotification(this, kToggleLotPlopWindowShortcutID);
+                        pMS2->AddNotification(this, kTogglePropPainterWindowShortcutID);
                     }
                 }
             }
@@ -387,6 +421,7 @@ private:
         cIGZMessageServer2Ptr pMS2Local;
         if (pMS2Local) {
             pMS2Local->RemoveNotification(this, kToggleLotPlopWindowShortcutID);
+            pMS2Local->RemoveNotification(this, kTogglePropPainterWindowShortcutID);
         }
     }
 
@@ -477,6 +512,110 @@ private:
         pCmd2->Release();
     }
 
+    void BuildPropCache() {
+        if (!pCity) {
+            LOG_ERROR("Cannot build prop cache: no city loaded");
+            return;
+        }
+
+        LOG_INFO("Building prop cache...");
+        mPropPainterUI.ShowLoadingWindow(true);
+        mPropPainterUI.UpdateLoadingProgress("Initializing...", 0, 0);
+
+        cIGZPersistResourceManagerPtr pRM;
+
+        auto progressCallback = [this](const char* stage, int current, int total) {
+            mPropPainterUI.UpdateLoadingProgress(stage, current, total);
+        };
+
+    	ID3D11Device* pDevice = D3D11Hook::GetDevice();
+    	ID3D11DeviceContext* pContext = nullptr;
+    	if (pDevice)
+    	{
+    		pDevice->GetImmediateContext(&pContext);
+    	} else
+    	{
+    		LOG_ERROR("Failed to get device context to build prop cache");
+    		return;
+    	}
+
+        const bool success = propCacheManager.Initialize(pCity, pRM, pDevice, pContext, progressCallback);
+
+        mPropPainterUI.ShowLoadingWindow(false);
+
+        if (success) {
+            LOG_INFO("Prop cache built successfully with {} props", propCacheManager.GetPropCount());
+        } else {
+            LOG_ERROR("Failed to build prop cache");
+        }
+    }
+
+    void StartPropPainting(uint32_t propID, int rotation) {
+        if (!pView3D || !pCity) {
+            LOG_ERROR("Cannot start prop painting: view or city not available");
+            return;
+        }
+
+        // Get prop name from cache
+        std::string propName = "Unknown Prop";
+        const PropCacheEntry* entry = propCacheManager.GetPropByID(propID);
+        if (entry) {
+            propName = entry->name;
+        }
+
+        // Create input control if it doesn't exist
+        if (!pPropPainterControl) {
+            pPropPainterControl = new PropPainterInputControl();
+            pPropPainterControl->SetCity(pCity);
+            pPropPainterControl->SetWindow(pView3D->AsIGZWin());
+            pPropPainterControl->Init();
+
+            // Set up preview rendering
+            mPropPainterUI.SetInputControl(pPropPainterControl);
+            mPropPainterUI.SetRenderer(pView3D->GetRenderer());
+        }
+
+        // Set the prop to paint (with name for preview)
+        pPropPainterControl->SetPropToPaint(propID, rotation, propName);
+
+        // Remove all existing input controls and activate the prop painter
+        pView3D->RemoveAllViewInputControls(false);
+        pView3D->SetCurrentViewInputControl(
+            pPropPainterControl,
+            cISC4View3DWin::ViewInputControlStackOperation_None
+        );
+
+        LOG_INFO("Started prop painting mode for prop {} (0x{:08X}), rotation {}", propName, propID, rotation);
+    }
+
+    void StopPropPainting() {
+        if (!pView3D) {
+            return;
+        }
+
+        // Remove the prop painter input control
+        pView3D->RemoveCurrentViewInputControl(false);
+
+        LOG_INFO("Stopped prop painting mode");
+    }
+
+    void TogglePropPainterWindow() {
+        bool *pShow = mPropPainterUI.GetShowWindowPtr();
+        *pShow = !*pShow;
+
+        if (*pShow) {
+            // Build cache if not initialized
+            if (!propCacheManager.IsInitialized()) {
+                BuildPropCache();
+            }
+        } else {
+            // Stop painting when window is closed
+            if (mPropPainterUI.IsPaintingActive()) {
+                StopPropPainting();
+            }
+        }
+    }
+
     bool DoMessage(cIGZMessage2 *pMsg) {
         auto pStandardMsg = static_cast<cIGZMessage2Standard *>(pMsg);
 
@@ -492,6 +631,10 @@ private:
                 break;
             case kToggleLotPlopWindowShortcutID:
                 ToggleWindow();
+                break;
+            case kTogglePropPainterWindowShortcutID:
+        		LOG_DEBUG("Toggle prop painter window");
+                TogglePropPainterWindow();
                 break;
             default:
                 LOG_DEBUG("Unsupported message type: 0x{:X}", pMsg->GetType());

@@ -165,3 +165,33 @@ bool PropertyUtil::GetItemDescription(
 
     return result;
 }
+
+bool PropertyUtil::GetPropertyResourceKey(
+    const cISCPropertyHolder* pPropertyHolder,
+    uint32_t propertyID,
+    cGZPersistResourceKey& outKey)
+{
+    if (!pPropertyHolder)
+        return false;
+
+    const cISCProperty* prop = pPropertyHolder->GetProperty(propertyID);
+    if (!prop)
+        return false;
+
+    const cIGZVariant* val = prop->GetPropertyValue();
+    if (!val || val->GetType() != cIGZVariant::Type::Uint32Array)
+        return false;
+
+    uint32_t count = val->GetCount();
+    if (count < 3)
+        return false;
+
+    const uint32_t* vals = val->RefUint32();
+    if (!vals)
+        return false;
+
+    outKey.type = vals[0];
+    outKey.group = vals[1];
+    outKey.instance = vals[2];
+    return true;
+}

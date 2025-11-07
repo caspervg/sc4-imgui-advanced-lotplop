@@ -51,6 +51,7 @@
 #include "SC4HashSet.h"
 #include "version.h"
 #include "cache/LotCacheManager.h"
+#include "cache/LotCacheBuildOrchestrator.h"
 #include "filter/LotFilterer.h"
 #include "proppainter/PropCacheManager.h"
 #include "proppainter/PropCacheBuildOrchestrator.h"
@@ -90,6 +91,7 @@ public:
         : pCheatCodeManager(nullptr),
           pCity(nullptr),
           pView3D(nullptr),
+          lotCacheBuildOrchestrator(lotCacheManager, mLotPlopUI),
           propCacheBuildOrchestrator(propCacheManager, mPropPaintUI) {
         std::string userDir;
         cISC4AppPtr pSC4App;
@@ -251,11 +253,8 @@ public:
         UnregisterToggleShortcut();
 
         // Cancel any pending incremental cache build
-        if (isCacheBuilding) {
-            LOG_INFO("Cancelling incremental cache build during city shutdown");
-            isCacheBuilding = false;
-            cacheBuildPhase = CacheBuildPhase::NotStarted;
-            mLotPlopUI.ShowLoadingWindow(false);
+        if (lotCacheBuildOrchestrator.IsBuilding()) {
+            lotCacheBuildOrchestrator.Cancel();
         }
 
         lotCacheManager.Clear();
@@ -272,59 +271,15 @@ public:
     }
 
     void Update() {
-        if (!isCacheBuilding) return;
+        // Update lot cache build if in progress
+        if (lotCacheBuildOrchestrator.IsBuilding()) {
+            ID3D11Device* pDevice = D3D11Hook::GetDevice();
+            bool stillBuilding = lotCacheBuildOrchestrator.Update(pDevice);
 
-        switch (cacheBuildPhase) {
-            case CacheBuildPhase::BuildingExemplarCache: {
-                // Build exemplar cache synchronously (fast operation)
-                LOG_INFO("Building exemplar cache...");
-                cIGZPersistResourceManagerPtr pRM;
-                lotCacheManager.BeginIncrementalBuild();
-                lotCacheManager.BuildExemplarCacheSync(pRM);
-
-                // Move to next phase
-                cacheBuildPhase = CacheBuildPhase::BuildingLotConfigCache;
-                lotCacheManager.BeginLotConfigProcessing(pCity);
-                LOG_INFO("Exemplar cache complete, starting lot config processing");
-                break;
-            }
-
-            case CacheBuildPhase::BuildingLotConfigCache: {
-                // Process lots incrementally (20 per frame)
-                constexpr int LOTS_PER_FRAME = 20;
-
-                cIGZPersistResourceManagerPtr pRM;
-                ID3D11Device* pDevice = D3D11Hook::GetDevice();
-
-                int processed = lotCacheManager.ProcessLotConfigBatch(pRM, pDevice, LOTS_PER_FRAME);
-
-                // Update progress
-                int current = lotCacheManager.GetProcessedLotCount();
-                int total = lotCacheManager.GetTotalLotCount();
-                mLotPlopUI.SetLoadingProgress("Processing lot configurations...", current, total);
-
-                // Check if complete
-                if (lotCacheManager.IsLotConfigProcessingComplete()) {
-                    cacheBuildPhase = CacheBuildPhase::Complete;
-                    LOG_INFO("Lot config processing complete");
-                }
-                break;
-            }
-
-            case CacheBuildPhase::Complete: {
-                // Finalize cache build
-                lotCacheManager.FinalizeIncrementalBuild();
-                isCacheBuilding = false;
-                mLotPlopUI.ShowLoadingWindow(false);
-                cacheBuildPhase = CacheBuildPhase::NotStarted;
-
-                LOG_INFO("Incremental cache build completed");
+            // If build just completed, refresh the lot list
+            if (!stillBuilding) {
                 RefreshLotList();
-                break;
             }
-
-            default:
-                break;
         }
     }
 
@@ -360,6 +315,7 @@ private:
     PropPainterUI mPropPaintUI;
 
     // Orchestrators
+    LotCacheBuildOrchestrator lotCacheBuildOrchestrator;
     PropCacheBuildOrchestrator propCacheBuildOrchestrator;
 
     // Filtered lot list (populated by RefreshLotList)
@@ -369,16 +325,6 @@ private:
     cRZAutoRefCount<PropPainterInputControl> pPropPainterControl;
 
     bool imGuiInitialized = false;
-
-    // Incremental cache building
-    bool isCacheBuilding = false;
-    enum class CacheBuildPhase {
-        NotStarted,
-        BuildingExemplarCache,
-        BuildingLotConfigCache,
-        Complete
-    };
-    CacheBuildPhase cacheBuildPhase = CacheBuildPhase::NotStarted;
 
     void RegisterToggleShortcut() {
         if (!pView3D) return;
@@ -408,20 +354,8 @@ private:
     }
 
     void BuildCache() {
-        if (isCacheBuilding) {
-            LOG_WARN("Cache build already in progress, ignoring request");
-            return;
-        }
-
-        LOG_INFO("Starting async cache build");
-        mLotPlopUI.ShowLoadingWindow(true);
-        mLotPlopUI.SetLoadingProgress("Initializing...", 0, 0);
-        isCacheBuilding = true;
-        cacheBuildPhase = CacheBuildPhase::BuildingExemplarCache;
-    }
-
-    void UpdateLoadingProgress(const char* stage, int current, int total) {
-        mLotPlopUI.SetLoadingProgress(stage, current, total);
+        ID3D11Device* pDevice = D3D11Hook::GetDevice();
+        lotCacheBuildOrchestrator.StartBuildCache(pCity, pDevice);
     }
 
     // Delegate to filterer

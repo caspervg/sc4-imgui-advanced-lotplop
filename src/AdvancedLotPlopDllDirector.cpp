@@ -55,7 +55,7 @@
 #include "filter/LotFilterer.h"
 #include "proppainter/PropCacheManager.h"
 #include "proppainter/PropCacheBuildOrchestrator.h"
-#include "proppainter/PropPainterInputControl.h"
+#include "proppainter/PropPainterControlManager.h"
 #include "proppainter/PropPainterUI.h"
 #include "s3d/S3DRenderer.h"
 #include "ui/AdvancedLotPlopUI.h"
@@ -94,7 +94,8 @@ public:
           pCity(nullptr),
           pView3D(nullptr),
           lotCacheBuildOrchestrator(lotCacheManager, mLotPlopUI),
-          propCacheBuildOrchestrator(propCacheManager, mPropPaintUI) {
+          propCacheBuildOrchestrator(propCacheManager, mPropPaintUI),
+          propPainterControlManager(propCacheManager, mPropPaintUI) {
         std::string userDir;
         cISC4AppPtr pSC4App;
         if (pSC4App) {
@@ -120,11 +121,11 @@ public:
 
         // Wire prop painter UI callbacks
         PropPainterUICallbacks propPaintCb{};
-        propPaintCb.OnStartPainting = [](uint32_t propID, int rotation) {
-            if (GetLotPlopDirector()) GetLotPlopDirector()->StartPropPainting(propID, rotation);
+        propPaintCb.OnStartPainting = [this](uint32_t propID, int rotation) {
+            propPainterControlManager.StartPainting(propID, rotation, pCity, pView3D);
         };
-        propPaintCb.OnStopPainting = []() {
-            if (GetLotPlopDirector()) GetLotPlopDirector()->StopPropPainting();
+        propPaintCb.OnStopPainting = [this]() {
+            propPainterControlManager.StopPainting(pView3D);
         };
         propPaintCb.OnBuildCache = []() {
             if (GetLotPlopDirector()) GetLotPlopDirector()->BuildPropCache();
@@ -327,11 +328,11 @@ private:
     // Shortcut manager
     ShortcutManager shortcutManager{kKeyConfigType, kKeyConfigGroup, kKeyConfigInstance};
 
+    // Prop painter control manager
+    PropPainterControlManager propPainterControlManager;
+
     // Filtered lot list (populated by RefreshLotList)
     std::vector<LotConfigEntry> lotEntries;
-
-    // Prop painter input control
-    cRZAutoRefCount<PropPainterInputControl> pPropPainterControl;
 
     void BuildCache() {
         ID3D11Device* pDevice = D3D11Hook::GetDevice();
@@ -413,56 +414,9 @@ private:
         propCacheBuildOrchestrator.BuildCache(pCity, pDevice);
     }
 
-    void StartPropPainting(uint32_t propID, int rotation) {
-        if (!pView3D || !pCity) {
-            LOG_ERROR("Cannot start prop painting: view or city not available");
-            return;
-        }
-
-        // Get prop name from cache
-        std::string propName = "Unknown Prop";
-        const PropCacheEntry* entry = propCacheManager.GetPropByID(propID);
-        if (entry) {
-            propName = entry->name;
-        }
-
-        // Create input control if it doesn't exist
-        if (!pPropPainterControl) {
-            pPropPainterControl = new PropPainterInputControl();
-            pPropPainterControl->SetCity(pCity);
-            pPropPainterControl->SetWindow(pView3D->AsIGZWin());
-            pPropPainterControl->Init();
-
-            // Set up preview rendering
-            mPropPaintUI.SetInputControl(pPropPainterControl);
-            mPropPaintUI.SetRenderer(pView3D->GetRenderer());
-        }
-
-        // Set the prop to paint (with name for preview)
-        pPropPainterControl->SetPropToPaint(propID, rotation, propName);
-
-        // Remove all existing input controls and activate the prop painter
-        pView3D->RemoveAllViewInputControls(false);
-        pView3D->SetCurrentViewInputControl(
-            pPropPainterControl,
-            cISC4View3DWin::ViewInputControlStackOperation_None
-        );
-
-        LOG_INFO("Started prop painting mode for prop {} (0x{:08X}), rotation {}", propName, propID, rotation);
-    }
-
-    void StopPropPainting() {
-        if (!pView3D) {
-            return;
-        }
-
-        // Remove the prop painter input control
-        pView3D->RemoveCurrentViewInputControl(false);
-
-        LOG_INFO("Stopped prop painting mode");
-    }
-
     void TogglePropPainterWindow() {
+    	pView3D->RemoveAllViewInputControls(false);
+
         bool *pShow = mPropPaintUI.GetShowWindowPtr();
         *pShow = !*pShow;
 
@@ -473,8 +427,8 @@ private:
             }
         } else {
             // Stop painting when window is closed
-            if (mPropPaintUI.IsPaintingActive()) {
-                StopPropPainting();
+            if (propPainterControlManager.IsPainting()) {
+                propPainterControlManager.StopPainting(pView3D);
             }
         }
     }

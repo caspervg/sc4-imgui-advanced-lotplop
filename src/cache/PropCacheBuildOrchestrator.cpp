@@ -35,72 +35,124 @@ PropCacheBuildOrchestrator::PropCacheBuildOrchestrator(
     : cacheManager(cacheManager)
     , ui(ui)
     , isBuilding(false)
+    , phase(Phase::NotStarted)
+    , pCity(nullptr)
+    , pDevice(nullptr)
+    , pContext(nullptr)
 {
 }
 
-bool PropCacheBuildOrchestrator::BuildCache(cISC4City* pCity, ID3D11Device* pDevice) {
+void PropCacheBuildOrchestrator::SetDeviceContext(ID3D11Device* pDevice, ID3D11DeviceContext* pContext) {
+    this->pDevice = pDevice;
+    this->pContext = pContext;
+}
+
+bool PropCacheBuildOrchestrator::StartBuildCache(cISC4City* pCity)
+{
     if (isBuilding) {
         LOG_WARN("Prop cache build already in progress");
         return false;
     }
 
     if (!pCity) {
-        LOG_ERROR("Cannot build prop cache: no city loaded");
+        LOG_ERROR("Cannot start prop cache build: no city provided");
         return false;
     }
 
     if (!pDevice) {
-        LOG_ERROR("Cannot build prop cache: no D3D11 device available");
+        LOG_ERROR("Cannot start prop cache build: no D3D11 device set (call SetDeviceContext first)");
         return false;
     }
 
-    isBuilding = true;
-    LOG_INFO("Building prop cache...");
+    if (!pContext) {
+        LOG_ERROR("Cannot start prop cache build: no device context set (call SetDeviceContext first)");
+        return false;
+    }
+
+    this->pCity = pCity;
+    this->isBuilding = true;
+    this->phase = Phase::BuildingPropCache;
+
+    LOG_INFO("Starting incremental prop cache build");
 
     // Show loading UI
     ui.ShowLoadingWindow(true);
     ui.UpdateLoadingProgress("Initializing...", 0, 0);
 
-    // Get required resources
-    cIGZPersistResourceManagerPtr pRM;
-    if (!pRM) {
-        LOG_ERROR("Failed to get resource manager");
+    // Start incremental build
+    if (!cacheManager.BeginIncrementalBuild(pCity)) {
+        LOG_ERROR("Failed to begin incremental prop cache build");
         ui.ShowLoadingWindow(false);
         isBuilding = false;
         return false;
     }
 
-    ID3D11DeviceContext* pContext = nullptr;
-    pDevice->GetImmediateContext(&pContext);
-    if (!pContext) {
-        LOG_ERROR("Failed to get device context");
-        ui.ShowLoadingWindow(false);
-        isBuilding = false;
+    return true;
+}
+
+bool PropCacheBuildOrchestrator::Update() {
+    if (!isBuilding) {
         return false;
     }
 
-    // Create progress callback that updates UI
-    auto progressCallback = [this](const char* stage, int current, int total) {
-        ui.UpdateLoadingProgress(stage, current, total);
-    };
+    switch (phase) {
+        case Phase::BuildingPropCache: {
+            // Process props incrementally (5 per frame)
+            cIGZPersistResourceManagerPtr pRM;
 
-    // Build the cache
-    const bool success = cacheManager.Initialize(pCity, pRM, pDevice, pContext, progressCallback);
+            int processed = cacheManager.ProcessPropBatch(pRM, pDevice, pContext, PROPS_PER_FRAME);
 
-    // Release context
-    if (pContext) {
-        pContext->Release();
+            // Update progress in UI
+            int current = cacheManager.GetProcessedPropCount();
+            int total = cacheManager.GetTotalPropCount();
+            ui.UpdateLoadingProgress("Processing props...", current, total);
+
+            // Check if complete
+            if (cacheManager.IsProcessingComplete()) {
+                phase = Phase::Complete;
+                LOG_INFO("Prop cache processing complete");
+            }
+
+            return true; // Still building
+        }
+
+        case Phase::Complete: {
+            // Finalize cache build
+            cacheManager.FinalizeIncrementalBuild();
+            LOG_INFO("Incremental prop cache build completed with {} props", cacheManager.GetPropCount());
+
+            // Hide loading UI
+            ui.ShowLoadingWindow(false);
+
+            // Reset state
+            isBuilding = false;
+            phase = Phase::NotStarted;
+            pCity = nullptr;
+            pDevice = nullptr;
+            pContext = nullptr;
+
+            return false; // Done
+        }
+
+        default:
+            return false;
     }
+}
+
+void PropCacheBuildOrchestrator::Cancel() {
+    if (!isBuilding) {
+        return;
+    }
+
+    LOG_INFO("Cancelling incremental prop cache build");
 
     // Hide loading UI
     ui.ShowLoadingWindow(false);
+
+    // Reset state
     isBuilding = false;
-
-    if (success) {
-        LOG_INFO("Prop cache built successfully with {} props", cacheManager.GetPropCount());
-    } else {
-        LOG_ERROR("Failed to build prop cache");
-    }
-
-    return success;
+    phase = Phase::NotStarted;
+    pCity = nullptr;
+    pDevice = nullptr;
+    pContext = nullptr;
 }

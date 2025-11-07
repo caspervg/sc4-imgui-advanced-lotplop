@@ -20,25 +20,25 @@
  */
 #pragma once
 
-#include <cstdint>
+#include "CacheBuildOrchestratorBase.h"
 
 class cISC4City;
 class LotCacheManager;
 class AdvancedLotPlopUI;
 struct ID3D11Device;
+struct ID3D11DeviceContext;
 
 /**
  * @brief Orchestrates incremental lot cache building with UI feedback
  *
- * Similar to PropCacheBuildOrchestrator but handles incremental updates.
- * This class manages the state machine for building the lot cache:
+ * Manages the state machine for building the lot cache:
  * 1. BuildingExemplarCache - Fast synchronous phase (1-2 frames)
  * 2. BuildingLotConfigCache - Incremental processing (20 lots/frame)
  * 3. Complete - Finalization
  *
  * Call StartBuildCache() to begin, then Update() every frame until IsBuilding() returns false.
  */
-class LotCacheBuildOrchestrator {
+class LotCacheBuildOrchestrator : public CacheBuildOrchestratorBase {
 public:
     /**
      * @brief Construct orchestrator with references to cache manager and UI
@@ -48,29 +48,34 @@ public:
     LotCacheBuildOrchestrator(LotCacheManager& cacheManager, AdvancedLotPlopUI& ui);
 
     /**
+     * @brief Set the D3D11 device and context (call once at initialization)
+     * @param pDevice D3D11 device for rendering
+     * @param pContext D3D11 device context
+     */
+    void SetDeviceContext(ID3D11Device* pDevice, ID3D11DeviceContext* pContext) override;
+
+    /**
      * @brief Start the incremental cache build process
      * @param pCity The city instance
-     * @param pDevice D3D11 device for thumbnail generation
      * @return true if started successfully, false otherwise
      */
-    bool StartBuildCache(cISC4City* pCity, ID3D11Device* pDevice);
+    bool StartBuildCache(cISC4City* pCity) override;
 
     /**
      * @brief Update the cache build (call once per frame until complete)
-     * @param pDevice D3D11 device for thumbnail generation
      * @return true if still building, false if complete
      */
-    bool Update(ID3D11Device* pDevice);
+    bool Update() override;
 
     /**
      * @brief Cancel the ongoing cache build
      */
-    void Cancel();
+    void Cancel() override;
 
     /**
      * @brief Check if cache is currently being built
      */
-    bool IsBuilding() const { return isBuilding; }
+    bool IsBuilding() const override { return isBuilding; }
 
 private:
     LotCacheManager& cacheManager;
@@ -85,6 +90,8 @@ private:
     };
     Phase phase;
     cISC4City* pCity;
+    ID3D11Device* pDevice;
+    ID3D11DeviceContext* pContext;
 
     static constexpr int LOTS_PER_FRAME = 20;
 };

@@ -266,13 +266,17 @@ public:
     void Update() {
         // Update lot cache build if in progress
         if (lotCacheBuildOrchestrator.IsBuilding()) {
-            ID3D11Device* pDevice = D3D11Hook::GetDevice();
-            bool stillBuilding = lotCacheBuildOrchestrator.Update(pDevice);
+            bool stillBuilding = lotCacheBuildOrchestrator.Update();
 
             // If build just completed, refresh the lot list
             if (!stillBuilding) {
                 RefreshLotList();
             }
+        }
+
+        // Update prop cache build if in progress
+        if (propCacheBuildOrchestrator.IsBuilding()) {
+            propCacheBuildOrchestrator.Update();
         }
     }
 
@@ -324,8 +328,7 @@ private:
     std::vector<LotConfigEntry> lotEntries;
 
     void BuildCache() {
-        ID3D11Device* pDevice = D3D11Hook::GetDevice();
-        lotCacheBuildOrchestrator.StartBuildCache(pCity, pDevice);
+        lotCacheBuildOrchestrator.StartBuildCache(pCity);
     }
 
     // Delegate to filterer
@@ -399,8 +402,7 @@ private:
     }
 
     void BuildPropCache() {
-        ID3D11Device* pDevice = D3D11Hook::GetDevice();
-        propCacheBuildOrchestrator.BuildCache(pCity, pDevice);
+        propCacheBuildOrchestrator.StartBuildCache(pCity);
     }
 
     void TogglePropPainterWindow() {
@@ -485,6 +487,11 @@ private:
         if (pRTV) {
             pContext->OMSetRenderTargets(1, &pRTV, nullptr);
         }
+
+    	if (pDevice && pContext) {
+    		pDirector->propCacheBuildOrchestrator.SetDeviceContext(pDevice, pContext);
+    		pDirector->lotCacheBuildOrchestrator.SetDeviceContext(pDevice, pContext);
+    	}
 
         // Begin ImGui frame
         pDirector->imGuiLifecycle.BeginFrame();

@@ -1,3 +1,4 @@
+#define NOMINMAX
 #include "PropCacheManager.h"
 
 #include <d3d11.h>
@@ -82,6 +83,167 @@ bool PropCacheManager::Initialize(
     return result;
 }
 
+bool PropCacheManager::BeginIncrementalBuild(cISC4City* pCity) {
+    if (initialized) {
+        LOG_WARN("PropCacheManager already initialized");
+        return false;
+    }
+
+    if (!pCity) {
+        LOG_ERROR("PropCacheManager::BeginIncrementalBuild - no city provided");
+        return false;
+    }
+
+    this->pPropManager = pCity->GetPropManager();
+    if (!this->pPropManager) {
+        LOG_ERROR("Failed to get PropManager from city");
+        return false;
+    }
+
+    // Load prop family types
+    SC4Vector<uint32_t> families;
+    this->pPropManager->GetAllPropFamilyTypes(families);
+    familyTypes.assign(families.begin(), families.end());
+    LOG_INFO("Found {} prop families", familyTypes.size());
+
+    // Get all prop types to process
+    SC4Vector<uint32_t> propTypes;
+    this->pPropManager->GetAllPropTypes(propTypes);
+    propTypesToProcess.assign(propTypes.begin(), propTypes.end());
+
+    if (propTypesToProcess.empty()) {
+        LOG_WARN("No props found in PropManager");
+        return true; // Not an error, just no props
+    }
+
+    LOG_INFO("Found {} prop types for processing", propTypesToProcess.size());
+
+    totalPropCount = static_cast<int>(propTypesToProcess.size());
+    currentPropIndex = 0;
+    processedPropCount = 0;
+
+    return true;
+}
+
+int PropCacheManager::ProcessPropBatch(
+    cIGZPersistResourceManager* pRM,
+    ID3D11Device* pDevice,
+    ID3D11DeviceContext* pContext,
+    int batchSize)
+{
+    if (propTypesToProcess.empty() || currentPropIndex >= static_cast<int>(propTypesToProcess.size())) {
+        return 0;
+    }
+
+    int processed = 0;
+    int endIndex = std::min(currentPropIndex + batchSize, static_cast<int>(propTypesToProcess.size()));
+
+    for (int i = currentPropIndex; i < endIndex; ++i) {
+        uint32_t propID = propTypesToProcess[i];
+        if (ProcessPropEntry(propID, pRM, pDevice, pContext)) {
+            processed++;
+            processedPropCount++;
+        }
+        currentPropIndex++;
+    }
+
+    // Report progress
+    if (progressCallback && processedPropCount % 10 == 0) {
+        progressCallback("Loading props", processedPropCount, totalPropCount);
+    }
+
+    return processed;
+}
+
+bool PropCacheManager::IsProcessingComplete() const {
+    return propTypesToProcess.empty() || currentPropIndex >= static_cast<int>(propTypesToProcess.size());
+}
+
+void PropCacheManager::FinalizeIncrementalBuild() {
+    LOG_INFO("Finalizing prop cache with {} props", props.size());
+    propTypesToProcess.clear();
+    currentPropIndex = 0;
+    processedPropCount = 0;
+    totalPropCount = 0;
+    progressCallback = nullptr;
+    initialized = true;
+}
+
+bool PropCacheManager::ProcessPropEntry(
+    uint32_t propID,
+    cIGZPersistResourceManager* pRM,
+    ID3D11Device* pDevice,
+    ID3D11DeviceContext* pContext)
+{
+    PropCacheEntry entry;
+    entry.propID = propID;
+
+    // Get the exemplar resource key for this prop
+    cGZPersistResourceKey exemplarKey;
+    if (!pPropManager->GetPropKeyFromType(propID, exemplarKey)) {
+        LOG_DEBUG("Failed to get resource key for prop 0x{:08X}", propID);
+        return false;
+    }
+
+    entry.exemplarIID = exemplarKey.instance;
+
+    // Load the prop exemplar
+    cRZAutoRefCount<cISCPropertyHolder> pPropExemplar;
+    if (!pRM->GetResource(
+        exemplarKey,
+        GZIID_cISCPropertyHolder,
+        pPropExemplar.AsPPVoid(),
+        0,
+        nullptr))
+    {
+        LOG_DEBUG("Failed to load exemplar for prop 0x{:08X}", propID);
+        return false;
+    }
+
+    constexpr uint32_t kPropExemplarName = 0x00000020;
+    const auto propName = new cRZBaseString(64);
+    pPropExemplar->GetProperty(kPropExemplarName, *propName);
+    entry.name = propName->ToChar();
+
+    // Extract S3D resource key from RKT1 property
+    cGZPersistResourceKey s3dKey;
+    if (PropertyUtil::GetPropertyResourceKey(
+        pPropExemplar,
+        kResourceKeyType1,
+        s3dKey))
+    {
+        entry.s3dType = s3dKey.type;
+        entry.s3dGroup = s3dKey.group;
+        entry.s3dInstance = s3dKey.instance;
+
+        // Generate S3D thumbnail if D3D11 is available
+        if (pDevice && pContext) {
+            ID3D11ShaderResourceView* s3dSRV =
+                S3D::ThumbnailGenerator::GenerateThumbnailFromExemplar(
+                    pPropExemplar,
+                    pRM,
+                    pDevice,
+                    pContext,
+                    64,  // thumbnail size
+                    5,   // zoom level (closest)
+                    0    // rotation (south)
+                );
+
+            if (s3dSRV) {
+                entry.iconSRV = s3dSRV;
+                entry.iconWidth = 64;
+                entry.iconHeight = 64;
+                entry.iconType = PropCacheEntry::IconType::S3D;
+            }
+        }
+    }
+
+    // Store the entry
+    propIDToIndex[propID] = props.size();
+    props.push_back(std::move(entry));
+    return true;
+}
+
 bool PropCacheManager::LoadPropsFromManager(
     cISC4PropManager* pPropManager,
     cIGZPersistResourceManager* pRM,
@@ -110,80 +272,7 @@ bool PropCacheManager::LoadPropsFromManager(
             progressCallback("Loading props", currentIdx, total);
         }
 
-        PropCacheEntry entry;
-        entry.propID = propID;
-
-        // Get prop name
-        // cIGZString* pName = pPropManager->GetPropName(propID);
-        // if (pName) {
-        //     entry.name = pName->ToChar();
-        // } else {
-        //     entry.name = "Unknown Prop";
-        // }
-
-        // Get the exemplar resource key for this prop
-        cGZPersistResourceKey exemplarKey;
-        if (!pPropManager->GetPropKeyFromType(propID, exemplarKey)) {
-            LOG_DEBUG("Failed to get resource key for prop 0x{:08X}", propID);
-            continue;
-        }
-
-        entry.exemplarIID = exemplarKey.instance;
-
-        // Load the prop exemplar
-        cRZAutoRefCount<cISCPropertyHolder> pPropExemplar;
-        if (!pRM->GetResource(
-            exemplarKey,
-            GZIID_cISCPropertyHolder,
-            pPropExemplar.AsPPVoid(),
-            0,
-            nullptr))
-        {
-            LOG_DEBUG("Failed to load exemplar for prop 0x{:08X}", propID);
-            continue;
-        }
-
-    	constexpr uint32_t kPropExemplarName = 0x00000020;
-    	const auto propName = new cRZBaseString(64);
-    	pPropExemplar->GetProperty(kPropExemplarName, *propName);
-    	entry.name = propName->ToChar();
-
-        // Extract S3D resource key from RKT1 property
-        cGZPersistResourceKey s3dKey;
-        if (PropertyUtil::GetPropertyResourceKey(
-            pPropExemplar,
-            kResourceKeyType1,
-            s3dKey))
-        {
-            entry.s3dType = s3dKey.type;
-            entry.s3dGroup = s3dKey.group;
-            entry.s3dInstance = s3dKey.instance;
-
-            // Generate S3D thumbnail if D3D11 is available
-            if (pDevice && pContext) {
-                ID3D11ShaderResourceView* s3dSRV =
-                    S3D::ThumbnailGenerator::GenerateThumbnailFromExemplar(
-                        pPropExemplar,
-                        pRM,
-                        pDevice,
-                        pContext,
-                        64,  // thumbnail size
-                        5,   // zoom level (closest)
-                        0    // rotation (south)
-                    );
-
-                if (s3dSRV) {
-                    entry.iconSRV = s3dSRV;
-                    entry.iconWidth = 64;
-                    entry.iconHeight = 64;
-                    entry.iconType = PropCacheEntry::IconType::S3D;
-                }
-            }
-        }
-
-        // Store the entry
-        propIDToIndex[propID] = props.size();
-        props.push_back(std::move(entry));
+        ProcessPropEntry(propID, pRM, pDevice, pContext);
     }
 
     LOG_INFO("Successfully loaded {} props with thumbnails", props.size());

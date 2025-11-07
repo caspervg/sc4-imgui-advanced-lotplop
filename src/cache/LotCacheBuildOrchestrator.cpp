@@ -37,10 +37,17 @@ LotCacheBuildOrchestrator::LotCacheBuildOrchestrator(
     , isBuilding(false)
     , phase(Phase::NotStarted)
     , pCity(nullptr)
+    , pDevice(nullptr)
+    , pContext(nullptr)
 {
 }
 
-bool LotCacheBuildOrchestrator::StartBuildCache(cISC4City* pCity, ID3D11Device* pDevice) {
+void LotCacheBuildOrchestrator::SetDeviceContext(ID3D11Device* pDevice, ID3D11DeviceContext* pContext) {
+    this->pDevice = pDevice;
+    this->pContext = pContext;
+}
+
+bool LotCacheBuildOrchestrator::StartBuildCache(cISC4City* pCity) {
     if (isBuilding) {
         LOG_WARN("Lot cache build already in progress");
         return false;
@@ -52,7 +59,12 @@ bool LotCacheBuildOrchestrator::StartBuildCache(cISC4City* pCity, ID3D11Device* 
     }
 
     if (!pDevice) {
-        LOG_ERROR("Cannot start lot cache build: no D3D11 device available");
+        LOG_ERROR("Cannot start lot cache build: no D3D11 device set (call SetDeviceContext first)");
+        return false;
+    }
+
+    if (!pContext) {
+        LOG_ERROR("Cannot start lot cache build: no device context set (call SetDeviceContext first)");
         return false;
     }
 
@@ -69,7 +81,7 @@ bool LotCacheBuildOrchestrator::StartBuildCache(cISC4City* pCity, ID3D11Device* 
     return true;
 }
 
-bool LotCacheBuildOrchestrator::Update(ID3D11Device* pDevice) {
+bool LotCacheBuildOrchestrator::Update() {
     if (!isBuilding) {
         return false;
     }
@@ -123,6 +135,8 @@ bool LotCacheBuildOrchestrator::Update(ID3D11Device* pDevice) {
             isBuilding = false;
             phase = Phase::NotStarted;
             pCity = nullptr;
+            pDevice = nullptr;
+            pContext = nullptr;
 
             return false; // Done
         }
@@ -146,4 +160,6 @@ void LotCacheBuildOrchestrator::Cancel() {
     isBuilding = false;
     phase = Phase::NotStarted;
     pCity = nullptr;
+    pDevice = nullptr;
+    pContext = nullptr;
 }

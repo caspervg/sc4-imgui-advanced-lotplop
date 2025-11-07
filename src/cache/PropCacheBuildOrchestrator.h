@@ -20,19 +20,21 @@
  */
 #pragma once
 
+#include "CacheBuildOrchestratorBase.h"
+
 class cISC4City;
 class PropCacheManager;
 class PropPainterUI;
 struct ID3D11Device;
+struct ID3D11DeviceContext;
 
 /**
- * @brief Orchestrates prop cache building with UI feedback and error handling
+ * @brief Orchestrates incremental prop cache building with UI feedback
  *
- * This class separates the cache building orchestration logic from the director,
- * handling UI updates, resource acquisition, and preparing for future disk-based
- * caching (SQLite integration).
+ * Manages incremental processing of the prop cache across multiple frames.
+ * Call StartBuildCache() to begin, then Update() every frame until IsBuilding() returns false.
  */
-class PropCacheBuildOrchestrator {
+class PropCacheBuildOrchestrator : public CacheBuildOrchestratorBase {
 public:
     /**
      * @brief Construct orchestrator with references to cache manager and UI
@@ -42,20 +44,49 @@ public:
     PropCacheBuildOrchestrator(PropCacheManager& cacheManager, PropPainterUI& ui);
 
     /**
-     * @brief Build the prop cache (or load from disk in future)
-     * @param pCity The city instance
-     * @param pDevice D3D11 device for thumbnail generation
-     * @return true if successful, false otherwise
+     * @brief Set the D3D11 device and context (call once at initialization)
+     * @param pDevice D3D11 device for rendering
+     * @param pContext D3D11 device context
      */
-    bool BuildCache(cISC4City* pCity, ID3D11Device* pDevice);
+    void SetDeviceContext(ID3D11Device* pDevice, ID3D11DeviceContext* pContext) override;
+
+    /**
+     * @brief Start the incremental cache build process
+     * @param pCity The city instance
+     * @return true if started successfully, false otherwise
+     */
+    bool StartBuildCache(cISC4City* pCity) override;
+
+    /**
+     * @brief Update the cache build (call once per frame until complete)
+     * @return true if still building, false if complete
+     */
+    bool Update() override;
+
+    /**
+     * @brief Cancel the ongoing cache build
+     */
+    void Cancel() override;
 
     /**
      * @brief Check if cache is currently being built
      */
-    bool IsBuilding() const { return isBuilding; }
+    bool IsBuilding() const override { return isBuilding; }
 
 private:
     PropCacheManager& cacheManager;
     PropPainterUI& ui;
+
     bool isBuilding;
+    enum class Phase {
+        NotStarted,
+        BuildingPropCache,
+        Complete
+    };
+    Phase phase;
+    cISC4City* pCity;
+    ID3D11Device* pDevice;
+    ID3D11DeviceContext* pContext;
+
+    static constexpr int PROPS_PER_FRAME = 5;  // Conservative batch size for prop thumbnail generation
 };

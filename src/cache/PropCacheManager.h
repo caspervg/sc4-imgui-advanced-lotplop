@@ -14,6 +14,9 @@ struct ID3D11DeviceContext;
 
 /**
  * @brief Manages a cache of all available props and their thumbnails
+ *
+ * Supports both synchronous initialization and incremental building.
+ * For incremental building, use: BeginIncrementalBuild() → ProcessPropBatch() → FinalizeIncrementalBuild()
  */
 class PropCacheManager {
 public:
@@ -23,7 +26,7 @@ public:
     ~PropCacheManager();
 
     /**
-     * @brief Initialize the cache with all available props
+     * @brief Initialize the cache with all available props (blocking, single-call)
      * @param pCity The city instance
      * @param pRM Resource manager for loading exemplars
      * @param pDevice D3D11 device for thumbnail generation
@@ -38,6 +41,48 @@ public:
         ID3D11DeviceContext* pContext,
         ProgressCallback callback = nullptr
     );
+
+    /**
+     * @brief Begin incremental cache building (fast synchronous phase)
+     * @param pCity The city instance
+     * @return true if successful, false otherwise
+     */
+    bool BeginIncrementalBuild(cISC4City* pCity);
+
+    /**
+     * @brief Process a batch of props (call once per frame)
+     * @param pRM Resource manager for loading exemplars
+     * @param pDevice D3D11 device for thumbnail generation
+     * @param pContext D3D11 device context
+     * @param batchSize Number of props to process in this batch
+     * @return Number of props actually processed
+     */
+    int ProcessPropBatch(
+        cIGZPersistResourceManager* pRM,
+        ID3D11Device* pDevice,
+        ID3D11DeviceContext* pContext,
+        int batchSize
+    );
+
+    /**
+     * @brief Check if prop processing is complete
+     */
+    bool IsProcessingComplete() const;
+
+    /**
+     * @brief Get the number of props processed so far
+     */
+    int GetProcessedPropCount() const { return processedPropCount; }
+
+    /**
+     * @brief Get the total number of props to process
+     */
+    int GetTotalPropCount() const { return totalPropCount; }
+
+    /**
+     * @brief Finalize incremental building (cleanup)
+     */
+    void FinalizeIncrementalBuild();
 
     /**
      * @brief Clear the cache and release resources
@@ -82,10 +127,23 @@ private:
         ID3D11DeviceContext* pContext
     );
 
+    bool ProcessPropEntry(
+        uint32_t propID,
+        cIGZPersistResourceManager* pRM,
+        ID3D11Device* pDevice,
+        ID3D11DeviceContext* pContext
+    );
+
     bool initialized;
     std::vector<PropCacheEntry> props;
     std::map<uint32_t, size_t> propIDToIndex;
     std::vector<uint32_t> familyTypes;
+    std::vector<uint32_t> propTypesToProcess;  // For incremental building
     cISC4PropManager* pPropManager;
     ProgressCallback progressCallback;
+
+    // Incremental build state
+    int currentPropIndex = 0;
+    int processedPropCount = 0;
+    int totalPropCount = 0;
 };

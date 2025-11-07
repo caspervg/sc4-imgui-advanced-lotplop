@@ -20,6 +20,7 @@
  */
 // ReSharper disable CppDFAUnreachableCode
 #include <d3d11.h>
+#include <deque>
 #include <string>
 #include <windows.h>
 
@@ -47,23 +48,19 @@
 #include "GZServPtrs.h"
 #include "imgui_impl_dx11.h"
 #include "imgui_impl_win32.h"
+#include "SC4HashSet.h"
 #include "version.h"
 #include "cache/LotCacheManager.h"
 #include "filter/LotFilterer.h"
+#include "proppainter/PropCacheManager.h"
+#include "proppainter/PropPainterInputControl.h"
+#include "proppainter/PropPainterUI.h"
+#include "s3d/S3DRenderer.h"
 #include "ui/AdvancedLotPlopUI.h"
 #include "ui/LotConfigEntry.h"
 #include "utils/Config.h"
 #include "utils/D3D11Hook.h"
 #include "utils/Logger.h"
-#include "s3d/S3DReader.h"
-#include "s3d/S3DRenderer.h"
-#include "proppainter/PropCacheManager.h"
-#include "proppainter/PropPainterUI.h"
-#include "proppainter/PropPainterInputControl.h"
-#include <deque>
-#include "cIGZPersistDBRecord.h"
-#include "cISCProperty.h"
-#include "SC4HashSet.h"
 
 class AdvancedLotPlopDllDirector;
 static constexpr uint32_t kMessageCheatIssued = 0x230E27AC;
@@ -108,26 +105,26 @@ public:
         Config::LoadOnce();
 
         // Wire UI callbacks
-        AdvancedLotPlopUICallbacks cb{};
-        cb.OnPlop = [](uint32_t lotID) { if (GetLotPlopDirector()) GetLotPlopDirector()->TriggerLotPlop(lotID); };
-        cb.OnBuildCache = []() { if (GetLotPlopDirector()) GetLotPlopDirector()->BuildCache(); };
-        cb.OnRefreshList = []() { if (GetLotPlopDirector()) GetLotPlopDirector()->RefreshLotList(); };
-        mUI.SetCallbacks(cb);
-        mUI.SetLotEntries(&lotEntries);
+        AdvancedLotPlopUICallbacks lotPlopCb{};
+        lotPlopCb.OnPlop = [](uint32_t lotID) { if (GetLotPlopDirector()) GetLotPlopDirector()->TriggerLotPlop(lotID); };
+        lotPlopCb.OnBuildCache = []() { if (GetLotPlopDirector()) GetLotPlopDirector()->BuildCache(); };
+        lotPlopCb.OnRefreshList = []() { if (GetLotPlopDirector()) GetLotPlopDirector()->RefreshLotList(); };
+        mLotPlopUI.SetCallbacks(lotPlopCb);
+        mLotPlopUI.SetLotEntries(&lotEntries);
 
         // Wire prop painter UI callbacks
-        PropPainterUICallbacks propCb{};
-        propCb.OnStartPainting = [](uint32_t propID, int rotation) {
+        PropPainterUICallbacks propPaintCb{};
+        propPaintCb.OnStartPainting = [](uint32_t propID, int rotation) {
             if (GetLotPlopDirector()) GetLotPlopDirector()->StartPropPainting(propID, rotation);
         };
-        propCb.OnStopPainting = []() {
+        propPaintCb.OnStopPainting = []() {
             if (GetLotPlopDirector()) GetLotPlopDirector()->StopPropPainting();
         };
-        propCb.OnBuildCache = []() {
+        propPaintCb.OnBuildCache = []() {
             if (GetLotPlopDirector()) GetLotPlopDirector()->BuildPropCache();
         };
-        mPropPainterUI.SetCallbacks(propCb);
-        mPropPainterUI.SetPropCacheManager(&propCacheManager);
+        mPropPaintUI.SetCallbacks(propPaintCb);
+        mPropPaintUI.SetPropCacheManager(&propCacheManager);
     }
 
     ~AdvancedLotPlopDllDirector() override {
@@ -135,13 +132,6 @@ public:
 
         lotCacheManager.Clear();
         propCacheManager.Clear();
-
-        // Clean up S3D thumbnail
-        if (s3dThumbnailSRV) {
-            s3dThumbnailSRV->Release();
-            s3dThumbnailSRV = nullptr;
-        }
-        s3dRenderer.reset();
 
         if (imGuiInitialized) {
             ImGui_ImplDX11_Shutdown();
@@ -169,7 +159,7 @@ public:
         cIGZApp *pApp = mpFrameWork->Application();
 
         pCity = static_cast<cISC4City *>(pStandardMsg->GetVoid1());
-        mUI.SetCity(pCity);
+        mLotPlopUI.SetCity(pCity);
 
         if (pSC4App && pMS2) {
             constexpr uint32_t kGZWin_WinSC4App = 0x6104489A;
@@ -263,13 +253,13 @@ public:
             LOG_INFO("Cancelling incremental cache build during city shutdown");
             isCacheBuilding = false;
             cacheBuildPhase = CacheBuildPhase::NotStarted;
-            mUI.ShowLoadingWindow(false);
+            mLotPlopUI.ShowLoadingWindow(false);
         }
 
         lotCacheManager.Clear();
 
         // Ensure UI no longer references city resources during shutdown
-        mUI.SetCity(nullptr);
+        mLotPlopUI.SetCity(nullptr);
 
         cISC4View3DWin *localView3D = pView3D;
         pView3D = nullptr;
@@ -309,7 +299,7 @@ public:
                 // Update progress
                 int current = lotCacheManager.GetProcessedLotCount();
                 int total = lotCacheManager.GetTotalLotCount();
-                mUI.SetLoadingProgress("Processing lot configurations...", current, total);
+                mLotPlopUI.SetLoadingProgress("Processing lot configurations...", current, total);
 
                 // Check if complete
                 if (lotCacheManager.IsLotConfigProcessingComplete()) {
@@ -323,7 +313,7 @@ public:
                 // Finalize cache build
                 lotCacheManager.FinalizeIncrementalBuild();
                 isCacheBuilding = false;
-                mUI.ShowLoadingWindow(false);
+                mLotPlopUI.ShowLoadingWindow(false);
                 cacheBuildPhase = CacheBuildPhase::NotStarted;
 
                 LOG_INFO("Incremental cache build completed");
@@ -337,21 +327,20 @@ public:
     }
 
     void RenderUI() {
-        bool *pShow = mUI.GetShowWindowPtr();
+        bool *pShow = mLotPlopUI.GetShowWindowPtr();
         if (pShow && *pShow) {
             // Delegate to UI class
-            mUI.Render();
-        	RenderS3DThumbnailWindow();
+            mLotPlopUI.Render();
         }
 
         // Render prop painter window independently
-        bool *pShowPropPainter = mPropPainterUI.GetShowWindowPtr();
+        bool *pShowPropPainter = mPropPaintUI.GetShowWindowPtr();
         if (pShowPropPainter && *pShowPropPainter) {
-            mPropPainterUI.Render();
+            mPropPaintUI.Render();
         }
 
         // Render prop painter preview overlay (crosshair, info, etc.)
-        mPropPainterUI.RenderPreviewOverlay();
+        mPropPaintUI.RenderPreviewOverlay();
     }
 
 private:
@@ -365,8 +354,8 @@ private:
     PropCacheManager propCacheManager;
 
     // UI facade
-    AdvancedLotPlopUI mUI;
-    PropPainterUI mPropPainterUI;
+    AdvancedLotPlopUI mLotPlopUI;
+    PropPainterUI mPropPaintUI;
 
     // Filtered lot list (populated by RefreshLotList)
     std::vector<LotConfigEntry> lotEntries;
@@ -386,18 +375,6 @@ private:
     };
     CacheBuildPhase cacheBuildPhase = CacheBuildPhase::NotStarted;
 
-	// S3D thumbnail proof-of-concept
-	bool showS3DThumbnail = true;
-	ID3D11ShaderResourceView *s3dThumbnailSRV = nullptr;
-	std::unique_ptr<S3D::Renderer> s3dRenderer;
-	bool s3dThumbnailGenerated = false;
-	int s3dZoomLevel = 5;  // SC4 zoom levels: 1-5 (5 is closest)
-	int s3dRotation = 0;   // SC4 rotations: 0-3 (cardinal directions)
-
-	// S3D thumbnail generation
-	void GenerateS3DThumbnail(ID3D11Device *device, ID3D11DeviceContext *context);
-
-	void RenderS3DThumbnailWindow();
     void RegisterToggleShortcut() {
         if (!pView3D) return;
         cIGZPersistResourceManagerPtr pRM;
@@ -432,14 +409,14 @@ private:
         }
 
         LOG_INFO("Starting async cache build");
-        mUI.ShowLoadingWindow(true);
-        mUI.SetLoadingProgress("Initializing...", 0, 0);
+        mLotPlopUI.ShowLoadingWindow(true);
+        mLotPlopUI.SetLoadingProgress("Initializing...", 0, 0);
         isCacheBuilding = true;
         cacheBuildPhase = CacheBuildPhase::BuildingExemplarCache;
     }
 
     void UpdateLoadingProgress(const char* stage, int current, int total) {
-        mUI.SetLoadingProgress(stage, current, total);
+        mLotPlopUI.SetLoadingProgress(stage, current, total);
     }
 
     // Delegate to filterer
@@ -453,18 +430,18 @@ private:
             pCity,
             lotCacheManager.GetLotConfigCache(),
             lotEntries,
-            mUI.GetFilterZoneType(),
-            mUI.GetFilterWealthType(),
-            mUI.GetMinSizeX(), mUI.GetMaxSizeX(),
-            mUI.GetMinSizeZ(), mUI.GetMaxSizeZ(),
-            mUI.GetSearchBuffer(),
-            mUI.GetSelectedOccupantGroups()
+            mLotPlopUI.GetFilterZoneType(),
+            mLotPlopUI.GetFilterWealthType(),
+            mLotPlopUI.GetMinSizeX(), mLotPlopUI.GetMaxSizeX(),
+            mLotPlopUI.GetMinSizeZ(), mLotPlopUI.GetMaxSizeZ(),
+            mLotPlopUI.GetSearchBuffer(),
+            mLotPlopUI.GetSelectedOccupantGroups()
         );
     }
 
     void ToggleWindow() {
     	pView3D->RemoveAllViewInputControls(false);
-        bool *pShow = mUI.GetShowWindowPtr();
+        bool *pShow = mLotPlopUI.GetShowWindowPtr();
         *pShow = !*pShow;
         if (*pShow) {
             if (!lotCacheManager.IsInitialized()) {
@@ -502,9 +479,9 @@ private:
         }
 
         pView3D->ProcessCommand(0xec3e82f8, *pCmd1, *pCmd2);
-    	mUI.RegisterPlop(lotID);
+    	mLotPlopUI.RegisterPlop(lotID);
 
-        if (bool *pShow = mUI.GetShowWindowPtr()) {
+        if (bool *pShow = mLotPlopUI.GetShowWindowPtr()) {
             *pShow = false;
         }
 
@@ -519,13 +496,13 @@ private:
         }
 
         LOG_INFO("Building prop cache...");
-        mPropPainterUI.ShowLoadingWindow(true);
-        mPropPainterUI.UpdateLoadingProgress("Initializing...", 0, 0);
+        mPropPaintUI.ShowLoadingWindow(true);
+        mPropPaintUI.UpdateLoadingProgress("Initializing...", 0, 0);
 
         cIGZPersistResourceManagerPtr pRM;
 
         auto progressCallback = [this](const char* stage, int current, int total) {
-            mPropPainterUI.UpdateLoadingProgress(stage, current, total);
+            mPropPaintUI.UpdateLoadingProgress(stage, current, total);
         };
 
     	ID3D11Device* pDevice = D3D11Hook::GetDevice();
@@ -541,7 +518,7 @@ private:
 
         const bool success = propCacheManager.Initialize(pCity, pRM, pDevice, pContext, progressCallback);
 
-        mPropPainterUI.ShowLoadingWindow(false);
+        mPropPaintUI.ShowLoadingWindow(false);
 
         if (success) {
             LOG_INFO("Prop cache built successfully with {} props", propCacheManager.GetPropCount());
@@ -571,8 +548,8 @@ private:
             pPropPainterControl->Init();
 
             // Set up preview rendering
-            mPropPainterUI.SetInputControl(pPropPainterControl);
-            mPropPainterUI.SetRenderer(pView3D->GetRenderer());
+            mPropPaintUI.SetInputControl(pPropPainterControl);
+            mPropPaintUI.SetRenderer(pView3D->GetRenderer());
         }
 
         // Set the prop to paint (with name for preview)
@@ -600,7 +577,7 @@ private:
     }
 
     void TogglePropPainterWindow() {
-        bool *pShow = mPropPainterUI.GetShowWindowPtr();
+        bool *pShow = mPropPaintUI.GetShowWindowPtr();
         *pShow = !*pShow;
 
         if (*pShow) {
@@ -610,7 +587,7 @@ private:
             }
         } else {
             // Stop painting when window is closed
-            if (mPropPainterUI.IsPaintingActive()) {
+            if (mPropPaintUI.IsPaintingActive()) {
                 StopPropPainting();
             }
         }
@@ -689,11 +666,6 @@ private:
         auto pDirector = GetLotPlopDirector();
         if (pDirector) {
             pDirector->Update();   // Business logic update
-            // Generate S3D thumbnail if not done yet
-            if (!pDirector->s3dThumbnailGenerated && pDirector->pCity) {
-                pDirector->GenerateS3DThumbnail(pDevice, pContext);
-            }
-
             pDirector->RenderUI();
         }
 
@@ -711,234 +683,4 @@ cRZCOMDllDirector *RZGetCOMDllDirector() {
 
 AdvancedLotPlopDllDirector *GetLotPlopDirector() {
     return &sDirector;
-}
-
-void AdvancedLotPlopDllDirector::GenerateS3DThumbnail(ID3D11Device *device, ID3D11DeviceContext *context) {
-    if (s3dThumbnailGenerated || !device || !context) {
-        return;
-    }
-
-    LOG_INFO("Generating S3D thumbnail proof-of-concept...");
-
-    constexpr uint32_t EXEMPLAR_TYPE = 0x6534284a;
-    constexpr uint32_t EXEMPLAR_GROUP = 0x13a0bd51;
-    constexpr uint32_t EXEMPLAR_ISNTANCE = 0xd6136b79;
-
-    try {
-        cIGZPersistResourceManagerPtr pRM;
-        if (!pRM) {
-            LOG_ERROR("Failed to get resource manager");
-            return;
-        }
-
-        // Get exemplar resource from ResourceManager
-        cGZPersistResourceKey exemplarKey(EXEMPLAR_TYPE, EXEMPLAR_GROUP, EXEMPLAR_ISNTANCE);
-
-        // First get the prop exemplar
-        cRZAutoRefCount<cISCPropertyHolder> propExemplar;
-        if (!pRM->GetResource(exemplarKey, GZIID_cISCPropertyHolder, propExemplar.AsPPVoid(), 0, nullptr)) {
-            LOG_ERROR("Failed to get prop exemplar");
-            return;
-        }
-
-        // Extract S3D resource key from exemplar
-        constexpr uint32_t kResourceKeyType1 = 0x27812821;
-        cGZPersistResourceKey s3dKey;
-        // Helper function to extract resource key from RKT1 property (Uint32 array with 3 values: T, G, I)
-        auto GetPropertyResourceKey = [](cISCPropertyHolder *holder, uint32_t propID,
-                                         cGZPersistResourceKey &outKey) -> bool {
-            const cISCProperty *prop = holder->GetProperty(propID);
-            if (!prop) return false;
-
-            const cIGZVariant *val = prop->GetPropertyValue();
-            if (!val || val->GetType() != cIGZVariant::Type::Uint32Array) return false;
-
-            uint32_t count = val->GetCount();
-            if (count < 3) return false;
-
-            const uint32_t *vals = val->RefUint32();
-            if (!vals) return false;
-
-            outKey.type = vals[0];
-            outKey.group = vals[1];
-            outKey.instance = vals[2];
-            return true;
-        };
-
-        auto res = GetPropertyResourceKey(propExemplar, kResourceKeyType1, s3dKey);
-
-        if (!res) {
-            LOG_ERROR("Failed to get S3D resource key from prop exemplar");
-            return;
-        }
-
-        // Calculate S3D instance offset based on zoom and rotation
-        // Pattern from SC4: instance = base + (zoom-1)*0x100 + rotation*0x10
-        // Zoom: 1-5 (1=farthest, 5=closest)
-        // Rotation: 0-3 (S, E, N, W cardinal directions)
-        uint32_t baseInstance = s3dKey.instance;
-        uint32_t zoomOffset = (s3dZoomLevel - 1) * 0x100;
-        uint32_t rotationOffset = s3dRotation * 0x10;
-        s3dKey.instance = baseInstance + zoomOffset + rotationOffset;
-
-        LOG_INFO("Loading S3D: base=0x{:08X}, zoom={} (+0x{:03X}), rot={} (+0x{:02X}), final=0x{:08X}",
-                 baseInstance, s3dZoomLevel, zoomOffset, s3dRotation, rotationOffset, s3dKey.instance);
-
-    	// Uncomment to try a True3D network model
-    	// s3dKey.type = 0x5ad0e817;
-    	// s3dKey.group = 0xbadb57f1;
-    	// s3dKey.instance = 0x5dac0004;
-        cIGZPersistDBRecord* pRecord = nullptr;
-        if (!pRM->OpenDBRecord(s3dKey, &pRecord, false)) {
-            LOG_ERROR("Failed to open S3D record - TGI may not exist: {:08x}-{:08x}-{:08x}",
-                      s3dKey.type, s3dKey.group, s3dKey.instance);
-            return;
-        }
-
-        uint32_t dataSize = pRecord->GetSize();
-        if (dataSize == 0) {
-            LOG_ERROR("S3D record has zero size");
-            pRecord->Close();
-            return;
-        }
-
-        std::vector<uint8_t> s3dData(dataSize);
-        if (!pRecord->GetFieldVoid(s3dData.data(), dataSize)) {
-            LOG_ERROR("Failed to read S3D data");
-            pRecord->Close();
-            return;
-        }
-
-        // Parse S3D model
-        S3D::Model model;
-        if (!S3D::Reader::Parse(s3dData.data(), dataSize, model)) {
-            LOG_ERROR("Failed to parse S3D model");
-            return;
-        }
-
-        LOG_TRACE("S3D model parsed successfully: {} meshes, {} frames",
-                 model.animation.animatedMeshes.size(), model.animation.frameCount);
-
-        // Create renderer
-        s3dRenderer = std::make_unique<S3D::Renderer>(device, context);
-
-        // Load model into renderer (using ResourceManager for texture loading)
-        if (!s3dRenderer->LoadModel(model, pRM, s3dKey.group)) {
-            LOG_ERROR("Failed to load S3D model into renderer");
-            s3dRenderer.reset();
-            return;
-        }
-
-        // Generate thumbnail
-        s3dThumbnailSRV = s3dRenderer->GenerateThumbnail(256);
-        if (s3dThumbnailSRV) {
-            LOG_TRACE("S3D thumbnail generated successfully!");
-            s3dThumbnailGenerated = true;
-        } else {
-            LOG_ERROR("Failed to generate S3D thumbnail");
-            s3dRenderer.reset();
-        }
-    } catch (const std::exception &e) {
-        LOG_ERROR("Exception while generating S3D thumbnail: {}", e.what());
-        s3dRenderer.reset();
-    }
-}
-
-void AdvancedLotPlopDllDirector::RenderS3DThumbnailWindow() {
-    if (!showS3DThumbnail) {
-        return;
-    }
-
-    if (ImGui::Begin("S3D Thumbnail", &showS3DThumbnail)) {
-        // Zoom and Rotation controls
-        if (s3dRenderer) {
-            ImGui::Text("View Controls:");
-
-            int previousZoom = s3dZoomLevel;
-            int previousRotation = s3dRotation;
-
-            // SC4 zoom levels: 1 (farthest) to 5 (closest)
-            ImGui::SliderInt("Zoom Level", &s3dZoomLevel, 1, 5);
-
-            // SC4 rotations: 0-3 (cardinal directions: S, E, N, W)
-            const char* rotationNames[] = { "South", "East", "North", "West" };
-            ImGui::SliderInt("Rotation", &s3dRotation, 0, 3);
-            ImGui::SameLine();
-            ImGui::Text("(%s)", rotationNames[s3dRotation]);
-
-            // Reload S3D if zoom or rotation changed
-            if (previousZoom != s3dZoomLevel || previousRotation != s3dRotation) {
-                LOG_INFO("Reloading S3D with zoom={}, rotation={}", s3dZoomLevel, s3dRotation);
-                s3dThumbnailGenerated = false;  // Trigger reload
-                GenerateS3DThumbnail(D3D11Hook::GetDevice(), D3D11Hook::GetContext());
-            }
-
-            ImGui::Separator();
-        }
-
-        // Debug visualization mode selector
-        if (s3dRenderer) {
-            ImGui::Text("Debug mode:");
-
-            static int currentDebugMode = 0; // 0=Normal, 1=Wireframe, etc.
-            const char* debugModeNames[] = {
-                "Normal",
-                "Wireframe",
-                "UV Coordinates",
-                "Vertex Color Only",
-                "Material ID",
-                "Texture Only",
-                "Alpha Test Visualization"
-            };
-
-            int previousMode = currentDebugMode;
-            if (ImGui::Combo("##DebugMode", &currentDebugMode, debugModeNames, IM_ARRAYSIZE(debugModeNames))) {
-                // Mode changed, update renderer and regenerate thumbnail
-                s3dRenderer->SetDebugMode(static_cast<S3D::DebugMode>(currentDebugMode));
-
-                // Release old thumbnail and regenerate with new debug mode
-                if (s3dThumbnailSRV) {
-                    s3dThumbnailSRV->Release();
-                    s3dThumbnailSRV = nullptr;
-                }
-
-                s3dThumbnailSRV = s3dRenderer->GenerateThumbnail(256);
-                if (s3dThumbnailSRV) {
-                    LOG_INFO("Regenerated S3D thumbnail with debug mode: {}", debugModeNames[currentDebugMode]);
-                } else {
-                    LOG_ERROR("Failed to regenerate S3D thumbnail");
-                }
-            }
-
-            // Show description for current mode
-            ImGui::TextWrapped("Description:");
-            switch (currentDebugMode) {
-                case 0: ImGui::TextWrapped("Normal rendering with textures and materials"); break;
-                case 1: ImGui::TextWrapped("Wireframe overlay to see mesh topology"); break;
-                case 2: ImGui::TextWrapped("UV coordinates as colors (Red=U, Green=V)"); break;
-                case 3: ImGui::TextWrapped("Vertex colors only (no textures)"); break;
-                case 4: ImGui::TextWrapped("Unique color per material ID"); break;
-                case 5: ImGui::TextWrapped("Normals visualization (not available - no normal data)"); break;
-                case 6: ImGui::TextWrapped("Textures without vertex color modulation"); break;
-                case 7: ImGui::TextWrapped("Alpha test visualization (Green=kept, Red=discarded)"); break;
-            }
-
-            ImGui::Separator();
-        }
-
-        if (s3dThumbnailSRV) {
-            ImGui::Text("Thumbnail generated:");
-            ImGui::Image(s3dThumbnailSRV, ImVec2(256, 256));
-        } else if (s3dThumbnailGenerated) {
-            ImGui::Text("Failed to generate thumbnail");
-        } else {
-            ImGui::Text("Thumbnail not yet generated");
-            if (ImGui::Button("Generate Thumbnail")) {
-                // Trigger generation on next render (when we have device/context)
-                // This will be called from OnImGuiRender where we have access to device
-                s3dThumbnailGenerated = false; // Reset flag to trigger generation
-            }
-        }
-    }
-    ImGui::End();
 }

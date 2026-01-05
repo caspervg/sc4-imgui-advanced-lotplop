@@ -6,7 +6,7 @@
 #include "LotConfigEntry.h"
 #include "LotConfigTableEntry.h"
 #include "../utils/Config.h"
-#include "../vendor/imgui/imgui.h"
+#include "imgui.h"
 #include "utils/Logger.h"
 
 AdvancedLotPlopUI::AdvancedLotPlopUI()
@@ -479,10 +479,14 @@ void AdvancedLotPlopUI::RenderLotList()
 
 void AdvancedLotPlopUI::RenderIconForEntry(const LotConfigEntry& entry)
 {
-	if (!entry.iconSRV || entry.iconType == LotConfigEntry::IconType::None)
-	{
-		// No icon available - show placeholder
-		ImGui::Dummy(ImVec2(44, 44));
+        // Temporary DX7 migration stub: show placeholder until texture path is updated.
+        ImGui::Dummy(ImVec2(44, 44));
+        return;
+
+        if (!entry.iconSRV || entry.iconType == LotConfigEntry::IconType::None)
+        {
+                // No icon available - show placeholder
+                ImGui::Dummy(ImVec2(44, 44));
 		return;
 	}
 

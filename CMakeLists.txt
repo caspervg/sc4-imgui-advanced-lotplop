@@ -84,29 +84,11 @@ if(NOT TARGET sqlite3)
     set_target_properties(sqlite3 PROPERTIES LINKER_LANGUAGE C)
 endif()
 
-# ImGui library (vendor/imgui has no CMakeLists)
-set(IMGUI_DIR ${CMAKE_SOURCE_DIR}/vendor/imgui)
-
-# Add all core ImGui .cpp and .h files
-file(GLOB IMGUI_CORE_SOURCES
-    ${IMGUI_DIR}/*.cpp
-    ${IMGUI_DIR}/*.h
-)
-
-# Explicitly add the Win32 and DX11 backend files
-set(IMGUI_BACKENDS
-    ${IMGUI_DIR}/backends/imgui_impl_win32.h
-    ${IMGUI_DIR}/backends/imgui_impl_win32.cpp
-    ${IMGUI_DIR}/backends/imgui_impl_dx11.h
-    ${IMGUI_DIR}/backends/imgui_impl_dx11.cpp
-)
-
-add_library(imgui STATIC ${IMGUI_CORE_SOURCES} ${IMGUI_BACKENDS})
-
-target_include_directories(imgui PUBLIC
-    ${IMGUI_DIR}
-    ${IMGUI_DIR}/backends
-)
+# ImGui service (DX7) headers and import library
+set(IMGUI_SERVICE_ROOT "${CMAKE_SOURCE_DIR}/../sc4-imgui-backend" CACHE PATH "Path to sc4-imgui-backend")
+set(IMGUI_PUBLIC_DIR "${IMGUI_SERVICE_ROOT}/src")
+set(IMGUI_INCLUDE_DIR "${IMGUI_SERVICE_ROOT}/vendor/d3d7imgui/ImGui")
+set(IMGUI_LIB_DIR "${IMGUI_SERVICE_ROOT}" CACHE PATH "Path containing imgui.lib from sc4-imgui-backend build")
 
 # GZCOM-DLL (vendor/gzcom-dll has sources, build local static lib)
 set(GZCOM_DIR ${CMAKE_SOURCE_DIR}/vendor/gzcom-dll/gzcom-dll)
@@ -141,11 +123,17 @@ target_include_directories(gzcom2 PUBLIC
 include_directories(
     ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_SOURCE_DIR}/vendor/DirectXTK/Inc
+    ${IMGUI_PUBLIC_DIR}
+    ${IMGUI_INCLUDE_DIR}
 )
 
 # Our source files
 file(GLOB_RECURSE PROJECT_SOURCES CONFIGURE_DEPENDS
     ${CMAKE_SOURCE_DIR}/src/*.cpp
+)
+list(REMOVE_ITEM PROJECT_SOURCES
+    ${CMAKE_SOURCE_DIR}/src/utils/D3D11Hook.cpp
+    ${CMAKE_SOURCE_DIR}/src/utils/ImGuiLifecycleManager.cpp
 )
 
 # Create the main DLL with explicit exports
@@ -156,12 +144,26 @@ target_link_libraries(${PROJECT_NAME}
     PRIVATE
     spdlog
     mINI
-    imgui
     gzcom2
     nlohmann_json
     DirectXTK
     sqlite3
 )
+
+file(GLOB_RECURSE IMGUI_LIB_CANDIDATES
+    "${IMGUI_LIB_DIR}/imgui.lib"
+    "${IMGUI_LIB_DIR}/*/imgui.lib"
+    "${IMGUI_LIB_DIR}/*/*/imgui.lib"
+    "${IMGUI_LIB_DIR}/*/*/*/imgui.lib"
+)
+list(LENGTH IMGUI_LIB_CANDIDATES IMGUI_LIB_COUNT)
+if(IMGUI_LIB_COUNT GREATER 0)
+    list(GET IMGUI_LIB_CANDIDATES 0 IMGUI_LIB)
+    target_link_libraries(${PROJECT_NAME} PRIVATE "${IMGUI_LIB}")
+    message(STATUS "Using imgui.lib: ${IMGUI_LIB}")
+else()
+    message(FATAL_ERROR "imgui.lib not found. Set IMGUI_LIB_DIR to the directory containing imgui.lib from sc4-imgui-backend.")
+endif()
 
 target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/vendor/wil/include)
 

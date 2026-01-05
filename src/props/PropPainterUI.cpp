@@ -144,6 +144,9 @@ void PropPainterUI::RenderToolbar() {
 }
 
 void PropPainterUI::RenderPropPreview() {
+    ImGui::Dummy(ImVec2(64, 64));
+    return;
+
     if (selectedPropID == 0 || !pCacheManager) {
         ImGui::TextWrapped("No prop selected");
         return;
@@ -223,6 +226,9 @@ void PropPainterUI::RenderPropBrowser() {
 
                 // Icon column
                 ImGui::TableSetColumnIndex(0);
+                ImGui::Dummy(ImVec2(44, 44));
+                const bool useImageRendering = false;
+                if (useImageRendering) {
                 if (prop.iconSRV) {
                     float displaySize = 44.0f;
                     ImVec2 cursorPos = ImGui::GetCursorPos();
@@ -236,6 +242,7 @@ void PropPainterUI::RenderPropBrowser() {
                     ImGui::Image(prop.iconSRV, ImVec2(displaySize, displaySize));
                 } else {
                     ImGui::Dummy(ImVec2(44, 44));
+                }
                 }
 
                 // Name column

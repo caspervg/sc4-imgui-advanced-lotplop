@@ -58,14 +58,8 @@ bool LotCacheBuildOrchestrator::StartBuildCache(cISC4City* pCity) {
         return false;
     }
 
-    if (!pDevice) {
-        LOG_ERROR("Cannot start lot cache build: no D3D11 device set (call SetDeviceContext first)");
-        return false;
-    }
-
-    if (!pContext) {
-        LOG_ERROR("Cannot start lot cache build: no device context set (call SetDeviceContext first)");
-        return false;
+    if (!pDevice || !pContext) {
+        LOG_WARN("Lot cache build starting without a D3D11 device/context; thumbnails will be skipped");
     }
 
     this->pCity = pCity;

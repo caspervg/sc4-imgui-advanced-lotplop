@@ -19,7 +19,6 @@
  * If not, see <http://www.gnu.org/licenses/>.
  */
 // ReSharper disable CppDFAUnreachableCode
-#include <d3d11.h>
 #include <filesystem>
 #include <string>
 #include <windows.h>
@@ -31,7 +30,6 @@
 #include "cIGZCommandParameterSet.h"
 #include "cIGZCommandServer.h"
 #include "cIGZFrameWork.h"
-#include "cIGZFrameWorkW32.h"
 #include "cIGZMessage2Standard.h"
 #include "cIGZMessageServer2.h"
 #include "cIGZVariant.h"
@@ -44,7 +42,10 @@
 #include "cRZBaseVariant.h"
 #include "cRZMessage2COMDirector.h"
 #include "GZServPtrs.h"
-#include "imgui_impl_win32.h"
+#include "imgui.h"
+#include "public/cIGZImGuiService.h"
+#include "public/ImGuiPanelAdapter.h"
+#include "public/ImGuiServiceIds.h"
 #include "version.h"
 #include "cache/LotCacheBuildOrchestrator.h"
 #include "cache/LotCacheManager.h"
@@ -57,8 +58,6 @@
 #include "props/PropPainterUI.h"
 #include "s3d/S3DRenderer.h"
 #include "utils/Config.h"
-#include "utils/D3D11Hook.h"
-#include "utils/ImGuiLifecycleManager.h"
 #include "utils/Logger.h"
 #include "utils/ShortcutManager.h"
 
@@ -83,12 +82,30 @@ static constexpr uint32_t kKeyConfigInstance = 0x5CBCFBF8;
 
 AdvancedLotPlopDllDirector *GetLotPlopDirector();
 
-class AdvancedLotPlopDllDirector final : public cRZMessage2COMDirector {
+namespace {
+    constexpr uint32_t kAdvancedLotPlopPanelId = 0xE5718D3A;
+
+    class LotPlopPanel final : public ImGuiPanel {
+    public:
+        explicit LotPlopPanel(AdvancedLotPlopDllDirector* director);
+        void OnUpdate() override;
+        void OnRender() override;
+        void OnShutdown() override;
+        void OnUnregister() override;
+
+    private:
+        AdvancedLotPlopDllDirector* director_;
+    };
+}
+
+class AdvancedLotPlopDllDirector final : public cRZMessage2COMDirector {        
 public:
     AdvancedLotPlopDllDirector()
         : lotCacheBuildOrchestrator(lotCacheManager, mLotPlopUI),
           propCacheBuildOrchestrator(propCacheManager, mPropPaintUI),
-          propPainterControlManager(propCacheManager, mPropPaintUI) {
+          propPainterControlManager(propCacheManager, mPropPaintUI),
+          imGuiService(nullptr),
+          panelRegistered(false) {
         std::string userDir;
         cISC4AppPtr pSC4App;
         if (pSC4App) {
@@ -129,13 +146,8 @@ public:
 
     ~AdvancedLotPlopDllDirector() override {
         LOG_INFO("~AdvancedLotPlopDllDirector()");
-
         lotCacheManager.Clear();
         propCacheManager.Clear();
-
-        imGuiLifecycle.Shutdown();
-        D3D11Hook::Shutdown();
-
         Logger::Shutdown();
     }
 
@@ -183,35 +195,6 @@ public:
             }
         }
 
-        // Initialize ImGui if not already done
-        if (!imGuiLifecycle.IsWin32Initialized()) {
-            HWND hGameWindow = nullptr;
-
-            // Query framework for Windows-specific interface
-            cRZAutoRefCount<cIGZFrameWorkW32> pFrameworkW32;
-            if (mpFrameWork->QueryInterface(GZIID_cIGZFrameWorkW32, pFrameworkW32.AsPPVoid())) {
-            	if (!pFrameworkW32) {
-            		LOG_ERROR("Failed to get framework W32 interface");
-            		return;
-            	}
-                hGameWindow = pFrameworkW32->GetMainHWND();
-            }
-
-            if (hGameWindow && IsWindow(hGameWindow)) {
-                LOG_INFO("Got game window from framework: 0x{:X}", reinterpret_cast<uintptr_t>(hGameWindow));
-
-                // Initialize D3D11 hook and ImGui Win32 backend
-                if (D3D11Hook::Initialize(hGameWindow)) {
-                    LOG_INFO("D3D11Hook initialized successfully");
-                    D3D11Hook::SetPresentCallback(OnImGuiRender);
-                    imGuiLifecycle.InitializeWin32(hGameWindow);
-                } else {
-                    LOG_WARN("D3D11Hook failed - ImGui will not be available");
-                }
-            } else {
-                LOG_ERROR("Failed to get game window from framework");
-            }
-        }
     }
 
     bool PreAppInit() override {
@@ -239,6 +222,42 @@ public:
             this->pMS2 = pMS2;
         }
 
+        if (!panelRegistered && mpFrameWork) {
+            if (mpFrameWork->GetSystemService(
+                kImGuiServiceID,
+                GZIID_cIGZImGuiService,
+                reinterpret_cast<void**>(&imGuiService))) {
+                if (!imGuiService->GetContext()) {
+                    LOG_WARN("ImGui service context not ready yet");
+                }
+
+                auto* panel = new LotPlopPanel(this);
+                ImGuiPanelDesc desc =
+                    ImGuiPanelAdapter<LotPlopPanel>::MakeDesc(panel, kAdvancedLotPlopPanelId, 200, true);
+                if (!imGuiService->RegisterPanel(desc)) {
+                    LOG_WARN("Failed to register AdvancedLotPlop ImGui panel");
+                    delete panel;
+                    imGuiService->Release();
+                    imGuiService = nullptr;
+                } else {
+                    panelRegistered = true;
+                    LOG_INFO("Registered AdvancedLotPlop ImGui panel");
+                }
+            } else {
+                LOG_WARN("ImGui service not available");
+            }
+        }
+
+        return true;
+    }
+
+    bool PostAppShutdown() override {
+        if (imGuiService) {
+            imGuiService->UnregisterPanel(kAdvancedLotPlopPanelId);
+            imGuiService->Release();
+            imGuiService = nullptr;
+        }
+        panelRegistered = false;
         return true;
     }
 
@@ -254,6 +273,8 @@ public:
             lotCacheBuildOrchestrator.Cancel();
         }
 
+        LOG_INFO("Skipping cache save during DX7 ImGui migration");
+#if 0
         // Save cache to database before clearing
         std::string userProfile = std::getenv("USERPROFILE") ? std::getenv("USERPROFILE") : "";
         if (!userProfile.empty()) {
@@ -275,6 +296,7 @@ public:
                 }
             }
         }
+#endif
 
         lotCacheManager.Clear();
         propCacheManager.Clear();
@@ -326,6 +348,8 @@ private:
     cRZAutoRefCount<cISC4City> pCity;
     cISC4View3DWin* pView3D;
     cRZAutoRefCount<cIGZMessageServer2> pMS2;
+    cIGZImGuiService* imGuiService;
+    bool panelRegistered;
 
     // Services
     LotCacheManager lotCacheManager;
@@ -339,9 +363,6 @@ private:
     LotCacheBuildOrchestrator lotCacheBuildOrchestrator;
     PropCacheBuildOrchestrator propCacheBuildOrchestrator;
 
-    // ImGui lifecycle manager
-    ImGuiLifecycleManager imGuiLifecycle;
-
     // Shortcut manager
     ShortcutManager shortcutManager{kKeyConfigType, kKeyConfigGroup, kKeyConfigInstance};
 
@@ -352,6 +373,8 @@ private:
     std::vector<LotConfigEntry> lotEntries;
 
     void BuildCache() {
+        LOG_INFO("Skipping cache load during DX7 ImGui migration");
+#if 0
         // Try loading from cache database first
         std::string userProfile = std::getenv("USERPROFILE") ? std::getenv("USERPROFILE") : "";
         if (!userProfile.empty()) {
@@ -372,6 +395,7 @@ private:
             }
         }
 
+        #endif
         // Fall back to incremental build
         lotCacheBuildOrchestrator.StartBuildCache(pCity);
     }
@@ -451,6 +475,8 @@ private:
     }
 
     void BuildPropCache() {
+        LOG_INFO("Skipping cache load during DX7 ImGui migration");
+#if 0
         // Try loading from cache database first
         std::string userProfile = std::getenv("USERPROFILE") ? std::getenv("USERPROFILE") : "";
         if (!userProfile.empty()) {
@@ -470,6 +496,7 @@ private:
             }
         }
 
+#endif
         // Fall back to incremental build
         propCacheBuildOrchestrator.StartBuildCache(pCity);
     }
@@ -521,58 +548,31 @@ private:
         return true;
     }
 
-    static void OnImGuiRender(
-        ID3D11Device *pDevice,
-        ID3D11DeviceContext *pContext,
-        IDXGISwapChain *pSwapChain) {
-        static ID3D11RenderTargetView *pRTV = nullptr;
-
-        auto pDirector = GetLotPlopDirector();
-        if (!pDirector) return;
-
-        // If ImGui context has been destroyed, skip rendering safely
-        if (ImGui::GetCurrentContext() == nullptr) {
-            return;
-        }
-
-        // Lazy initialize DX11 backend if needed
-        if (!pDirector->imGuiLifecycle.IsDX11Initialized()) {
-            if (pDevice && pContext) {
-                pDirector->imGuiLifecycle.InitializeDX11(pDevice, pContext);
-            }
-        }
-        if (!pDirector->imGuiLifecycle.IsFullyInitialized()) return;
-
-        // Create RTV once from swap chain
-        if (!pRTV && pSwapChain) {
-            ID3D11Texture2D *pBackBuffer = nullptr;
-            HRESULT hr = pSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void **>(&pBackBuffer));
-            if (SUCCEEDED(hr) && pBackBuffer) {
-                pDevice->CreateRenderTargetView(pBackBuffer, nullptr, &pRTV);
-                pBackBuffer->Release();
-                LOG_INFO("Created DX11 render target view for ImGui");
-            }
-        }
-        if (pRTV) {
-            pContext->OMSetRenderTargets(1, &pRTV, nullptr);
-        }
-
-    	if (pDevice && pContext) {
-    		pDirector->propCacheBuildOrchestrator.SetDeviceContext(pDevice, pContext);
-    		pDirector->lotCacheBuildOrchestrator.SetDeviceContext(pDevice, pContext);
-    	}
-
-        // Begin ImGui frame
-        pDirector->imGuiLifecycle.BeginFrame();
-
-        // Business logic and UI rendering
-        pDirector->Update();
-        pDirector->RenderUI();
-
-        // End ImGui frame
-        pDirector->imGuiLifecycle.EndFrame();
-    }
 };
+
+LotPlopPanel::LotPlopPanel(AdvancedLotPlopDllDirector* director)
+    : director_(director) {
+}
+
+void LotPlopPanel::OnUpdate() {
+    if (director_) {
+        director_->Update();
+    }
+}
+
+void LotPlopPanel::OnRender() {
+    if (director_) {
+        director_->RenderUI();
+    }
+}
+
+void LotPlopPanel::OnShutdown() {
+    delete this;
+}
+
+void LotPlopPanel::OnUnregister() {
+    delete this;
+}
 
 static AdvancedLotPlopDllDirector sDirector;
 

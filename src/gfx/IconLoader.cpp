@@ -22,18 +22,20 @@
 
 #include <vector>
 
-#include "DX11ImageLoader.h"
+#include "d3d.h"
+#include "DX7ImageLoader.h"
 #include "../exemplar/IconResourceUtil.h"
+#include "public/cIGZImGuiService.h"
 
 bool IconLoader::LoadIconFromPNG(
     cIGZPersistResourceManager* pRM,
     uint32_t iconInstance,
-    ID3D11Device* pDevice,
-    ID3D11ShaderResourceView** outSRV,
+    cIGZImGuiService* pImGuiService,
+    IDirectDrawSurface7** outSurface,
     int* outWidth,
     int* outHeight
 ) {
-    if (!pRM || !pDevice || !outSRV || iconInstance == 0) {
+    if (!pRM || !pImGuiService || !outSurface || iconInstance == 0) {
         return false;
     }
 
@@ -43,14 +45,31 @@ bool IconLoader::LoadIconFromPNG(
         return false;
     }
 
-    // Convert to D3D11 texture
-    ID3D11ShaderResourceView* srv = nullptr;
-    int w = 0, h = 0;
-    if (!gfx::CreateSRVFromPNGMemory(pngBytes.data(), pngBytes.size(), pDevice, &srv, &w, &h)) {
+    IDirect3DDevice7* d3d = nullptr;
+    IDirectDraw7* dd = nullptr;
+    if (!pImGuiService->AcquireD3DInterfaces(&d3d, &dd)) {
         return false;
     }
 
-    *outSRV = srv;
+    IDirectDrawSurface7* surface = nullptr;
+    int w = 0, h = 0;
+    bool created = gfx::CreateSurfaceFromPNGMemory(
+        pngBytes.data(),
+        pngBytes.size(),
+        dd,
+        &surface,
+        &w,
+        &h
+    );
+
+    d3d->Release();
+    dd->Release();
+
+    if (!created) {
+        return false;
+    }
+
+    *outSurface = surface;
     if (outWidth) *outWidth = w;
     if (outHeight) *outHeight = h;
     return true;

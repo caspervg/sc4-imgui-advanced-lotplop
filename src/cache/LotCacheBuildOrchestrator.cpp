@@ -20,13 +20,12 @@
  */
 #include "LotCacheBuildOrchestrator.h"
 
-#include <d3d11.h>
-
 #include "cISC4City.h"
 #include "cIGZPersistResourceManager.h"
 #include "GZServPtrs.h"
 #include "LotCacheManager.h"
 #include "../lots/AdvancedLotPlopUI.h"
+#include "public/cIGZImGuiService.h"
 #include "../utils/Logger.h"
 
 LotCacheBuildOrchestrator::LotCacheBuildOrchestrator(
@@ -37,14 +36,12 @@ LotCacheBuildOrchestrator::LotCacheBuildOrchestrator(
     , isBuilding(false)
     , phase(Phase::NotStarted)
     , pCity(nullptr)
-    , pDevice(nullptr)
-    , pContext(nullptr)
+    , pImGuiService(nullptr)
 {
 }
 
-void LotCacheBuildOrchestrator::SetDeviceContext(ID3D11Device* pDevice, ID3D11DeviceContext* pContext) {
-    this->pDevice = pDevice;
-    this->pContext = pContext;
+void LotCacheBuildOrchestrator::SetImGuiService(cIGZImGuiService* pImGuiService) {
+    this->pImGuiService = pImGuiService;
 }
 
 bool LotCacheBuildOrchestrator::StartBuildCache(cISC4City* pCity) {
@@ -58,8 +55,8 @@ bool LotCacheBuildOrchestrator::StartBuildCache(cISC4City* pCity) {
         return false;
     }
 
-    if (!pDevice || !pContext) {
-        LOG_WARN("Lot cache build starting without a D3D11 device/context; thumbnails will be skipped");
+    if (!pImGuiService) {
+        LOG_WARN("Lot cache build starting without ImGui service; icons will be skipped");
     }
 
     this->pCity = pCity;
@@ -101,7 +98,7 @@ bool LotCacheBuildOrchestrator::Update() {
             // Process lots incrementally (20 per frame)
             cIGZPersistResourceManagerPtr pRM;
 
-            int processed = cacheManager.ProcessLotConfigBatch(pRM, pDevice, LOTS_PER_FRAME);
+            int processed = cacheManager.ProcessLotConfigBatch(pRM, pImGuiService, LOTS_PER_FRAME);
 
             // Update progress in UI
             int current = cacheManager.GetProcessedLotCount();
@@ -129,8 +126,7 @@ bool LotCacheBuildOrchestrator::Update() {
             isBuilding = false;
             phase = Phase::NotStarted;
             pCity = nullptr;
-            pDevice = nullptr;
-            pContext = nullptr;
+            pImGuiService = nullptr;
 
             return false; // Done
         }
@@ -154,6 +150,5 @@ void LotCacheBuildOrchestrator::Cancel() {
     isBuilding = false;
     phase = Phase::NotStarted;
     pCity = nullptr;
-    pDevice = nullptr;
-    pContext = nullptr;
+    pImGuiService = nullptr;
 }

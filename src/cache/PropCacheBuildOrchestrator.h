@@ -25,8 +25,7 @@
 class cISC4City;
 class PropCacheManager;
 class PropPainterUI;
-struct ID3D11Device;
-struct ID3D11DeviceContext;
+class cIGZImGuiService;
 
 /**
  * @brief Orchestrates incremental prop cache building with UI feedback
@@ -44,11 +43,10 @@ public:
     PropCacheBuildOrchestrator(PropCacheManager& cacheManager, PropPainterUI& ui);
 
     /**
-     * @brief Set the D3D11 device and context (call once at initialization)
-     * @param pDevice D3D11 device for rendering
-     * @param pContext D3D11 device context
+     * @brief Set the ImGui service (optional)
+     * @param pImGuiService ImGui service instance
      */
-    void SetDeviceContext(ID3D11Device* pDevice, ID3D11DeviceContext* pContext) override;
+    void SetImGuiService(cIGZImGuiService* pImGuiService) override;
 
     /**
      * @brief Start the incremental cache build process
@@ -85,8 +83,7 @@ private:
     };
     Phase phase;
     cISC4City* pCity;
-    ID3D11Device* pDevice;
-    ID3D11DeviceContext* pContext;
+    cIGZImGuiService* pImGuiService;
 
     static constexpr int PROPS_PER_FRAME = 5;  // Conservative batch size for prop thumbnail generation
 };

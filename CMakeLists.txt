@@ -131,6 +131,10 @@ include_directories(
 file(GLOB_RECURSE PROJECT_SOURCES CONFIGURE_DEPENDS
     ${CMAKE_SOURCE_DIR}/src/*.cpp
 )
+list(APPEND PROJECT_SOURCES
+    ${CMAKE_SOURCE_DIR}/src/lots/LotPlopPanel.cpp
+    ${CMAKE_SOURCE_DIR}/src/props/PropPainterPanel.cpp
+)
 list(REMOVE_ITEM PROJECT_SOURCES
     ${CMAKE_SOURCE_DIR}/src/utils/D3D11Hook.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/ImGuiLifecycleManager.cpp

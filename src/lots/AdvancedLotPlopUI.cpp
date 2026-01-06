@@ -479,15 +479,11 @@ void AdvancedLotPlopUI::RenderLotList()
 
 void AdvancedLotPlopUI::RenderIconForEntry(const LotConfigEntry& entry)
 {
-        // Temporary DX7 migration stub: show placeholder until texture path is updated.
-        ImGui::Dummy(ImVec2(44, 44));
-        return;
-
-        if (!entry.iconSRV || entry.iconType == LotConfigEntry::IconType::None)
+        if (!entry.iconSurface || entry.iconType == LotConfigEntry::IconType::None)
         {
                 // No icon available - show placeholder
                 ImGui::Dummy(ImVec2(44, 44));
-		return;
+                return;
 	}
 
 	switch (entry.iconType)
@@ -499,7 +495,7 @@ void AdvancedLotPlopUI::RenderIconForEntry(const LotConfigEntry& entry)
 			float v1 = 0.0f;
 			float u2 = (entry.iconWidth > 0) ? (88.0f / (float)entry.iconWidth) : 0.0f;
 			float v2 = (entry.iconHeight > 0) ? (44.0f / (float)entry.iconHeight) : 0.0f;
-			ImGui::Image((ImTextureID)entry.iconSRV, ImVec2(44, 44), ImVec2(u1, v1), ImVec2(u2, v2));
+                        ImGui::Image((ImTextureID)entry.iconSurface, ImVec2(44, 44), ImVec2(u1, v1), ImVec2(u2, v2));
 		}
 		break;
 
@@ -516,7 +512,7 @@ void AdvancedLotPlopUI::RenderIconForEntry(const LotConfigEntry& entry)
 				displaySize = (float)entry.iconWidth;
 			}
 
-			ImGui::Image((ImTextureID)entry.iconSRV, ImVec2(displaySize, displaySize));
+                        ImGui::Image((ImTextureID)entry.iconSurface, ImVec2(displaySize, displaySize));
 
 			// Reset cursor if we offset it
 			if (entry.iconWidth < 44) {

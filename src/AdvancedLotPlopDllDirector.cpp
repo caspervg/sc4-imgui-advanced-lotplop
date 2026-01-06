@@ -54,9 +54,12 @@
 #include "lots/AdvancedLotPlopUI.h"
 #include "lots/LotConfigEntry.h"
 #include "lots/LotFilterer.h"
+#include "lots/LotPlopPanel.h"
 #include "props/PropPainterControlManager.h"
 #include "props/PropPainterUI.h"
+#include "props/PropPainterPanel.h"
 #include "s3d/S3DRenderer.h"
+#include "ui/ImGuiPanelHost.h"
 #include "utils/Config.h"
 #include "utils/Logger.h"
 #include "utils/ShortcutManager.h"
@@ -84,28 +87,19 @@ AdvancedLotPlopDllDirector *GetLotPlopDirector();
 
 namespace {
     constexpr uint32_t kAdvancedLotPlopPanelId = 0xE5718D3A;
-
-    class LotPlopPanel final : public ImGuiPanel {
-    public:
-        explicit LotPlopPanel(AdvancedLotPlopDllDirector* director);
-        void OnUpdate() override;
-        void OnRender() override;
-        void OnShutdown() override;
-        void OnUnregister() override;
-
-    private:
-        AdvancedLotPlopDllDirector* director_;
-    };
+    constexpr uint32_t kPropPainterPanelId = 0xB8F21C64;
 }
 
-class AdvancedLotPlopDllDirector final : public cRZMessage2COMDirector {        
+class AdvancedLotPlopDllDirector final : public cRZMessage2COMDirector, public ImGuiPanelHost {
 public:
     AdvancedLotPlopDllDirector()
         : lotCacheBuildOrchestrator(lotCacheManager, mLotPlopUI),
           propCacheBuildOrchestrator(propCacheManager, mPropPaintUI),
           propPainterControlManager(propCacheManager, mPropPaintUI),
           imGuiService(nullptr),
-          panelRegistered(false) {
+          lotPlopPanelRegistered(false),
+          propPainterPanelRegistered(false),
+          lastUpdateFrame(-1) {
         std::string userDir;
         cISC4AppPtr pSC4App;
         if (pSC4App) {
@@ -222,26 +216,40 @@ public:
             this->pMS2 = pMS2;
         }
 
-        if (!panelRegistered && mpFrameWork) {
+        if (!lotPlopPanelRegistered && mpFrameWork) {
             if (mpFrameWork->GetSystemService(
                 kImGuiServiceID,
                 GZIID_cIGZImGuiService,
                 reinterpret_cast<void**>(&imGuiService))) {
+                lotCacheBuildOrchestrator.SetImGuiService(imGuiService);
                 if (!imGuiService->GetContext()) {
                     LOG_WARN("ImGui service context not ready yet");
                 }
 
-                auto* panel = new LotPlopPanel(this);
-                ImGuiPanelDesc desc =
-                    ImGuiPanelAdapter<LotPlopPanel>::MakeDesc(panel, kAdvancedLotPlopPanelId, 200, true);
-                if (!imGuiService->RegisterPanel(desc)) {
+                auto* lotPanel = new LotPlopPanel(this);
+                ImGuiPanelDesc lotDesc =
+                    ImGuiPanelAdapter<LotPlopPanel>::MakeDesc(lotPanel, kAdvancedLotPlopPanelId, 200, true);
+                if (!imGuiService->RegisterPanel(lotDesc)) {
                     LOG_WARN("Failed to register AdvancedLotPlop ImGui panel");
-                    delete panel;
+                    delete lotPanel;
                     imGuiService->Release();
                     imGuiService = nullptr;
                 } else {
-                    panelRegistered = true;
+                    lotPlopPanelRegistered = true;
                     LOG_INFO("Registered AdvancedLotPlop ImGui panel");
+                }
+
+                if (imGuiService) {
+                    auto* propPanel = new PropPainterPanel(this);
+                    ImGuiPanelDesc propDesc =
+                        ImGuiPanelAdapter<PropPainterPanel>::MakeDesc(propPanel, kPropPainterPanelId, 210, true);
+                    if (!imGuiService->RegisterPanel(propDesc)) {
+                        LOG_WARN("Failed to register PropPainter ImGui panel");
+                        delete propPanel;
+                    } else {
+                        propPainterPanelRegistered = true;
+                        LOG_INFO("Registered PropPainter ImGui panel");
+                    }
                 }
             } else {
                 LOG_WARN("ImGui service not available");
@@ -253,11 +261,17 @@ public:
 
     bool PostAppShutdown() override {
         if (imGuiService) {
-            imGuiService->UnregisterPanel(kAdvancedLotPlopPanelId);
+            if (propPainterPanelRegistered) {
+                imGuiService->UnregisterPanel(kPropPainterPanelId);
+            }
+            if (lotPlopPanelRegistered) {
+                imGuiService->UnregisterPanel(kAdvancedLotPlopPanelId);
+            }
             imGuiService->Release();
             imGuiService = nullptr;
         }
-        panelRegistered = false;
+        lotPlopPanelRegistered = false;
+        propPainterPanelRegistered = false;
         return true;
     }
 
@@ -326,13 +340,24 @@ public:
         }
     }
 
-    void RenderUI() {
+    void UpdateOncePerFrame() override {
+        const int frame = ImGui::GetFrameCount();
+        if (frame == lastUpdateFrame) {
+            return;
+        }
+        lastUpdateFrame = frame;
+        Update();
+    }
+
+    void RenderLotPlopUI() override {
         bool *pShow = mLotPlopUI.GetShowWindowPtr();
         if (pShow && *pShow) {
             // Delegate to UI class
             mLotPlopUI.Render();
         }
+    }
 
+    void RenderPropPainterUI() override {
         // Render prop painter window independently
         bool *pShowPropPainter = mPropPaintUI.GetShowWindowPtr();
         if (pShowPropPainter && *pShowPropPainter) {
@@ -349,7 +374,9 @@ private:
     cISC4View3DWin* pView3D;
     cRZAutoRefCount<cIGZMessageServer2> pMS2;
     cIGZImGuiService* imGuiService;
-    bool panelRegistered;
+    bool lotPlopPanelRegistered;
+    bool propPainterPanelRegistered;
+    int lastUpdateFrame;
 
     // Services
     LotCacheManager lotCacheManager;
@@ -549,30 +576,6 @@ private:
     }
 
 };
-
-LotPlopPanel::LotPlopPanel(AdvancedLotPlopDllDirector* director)
-    : director_(director) {
-}
-
-void LotPlopPanel::OnUpdate() {
-    if (director_) {
-        director_->Update();
-    }
-}
-
-void LotPlopPanel::OnRender() {
-    if (director_) {
-        director_->RenderUI();
-    }
-}
-
-void LotPlopPanel::OnShutdown() {
-    delete this;
-}
-
-void LotPlopPanel::OnUnregister() {
-    delete this;
-}
 
 static AdvancedLotPlopDllDirector sDirector;
 

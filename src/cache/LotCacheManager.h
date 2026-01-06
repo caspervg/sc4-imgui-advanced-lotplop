@@ -30,6 +30,7 @@
 
 class cISC4City;
 class cIGZPersistResourceManager;
+class cIGZImGuiService;
 struct ID3D11Device;
 struct ID3D11DeviceContext;
 class CacheDatabase;
@@ -47,13 +48,13 @@ public:
     ~LotCacheManager();
 
     // Build the complete cache
-    void BuildCache(cISC4City* pCity, cIGZPersistResourceManager* pRM, ID3D11Device* pDevice, LotCacheProgressCallback progressCallback = nullptr);
+    void BuildCache(cISC4City* pCity, cIGZPersistResourceManager* pRM, cIGZImGuiService* pImGuiService, LotCacheProgressCallback progressCallback = nullptr);
 
     // Incremental cache building
     void BeginIncrementalBuild();
     void BuildExemplarCacheSync(cIGZPersistResourceManager* pRM);
     void BeginLotConfigProcessing(cISC4City* pCity);
-    int ProcessLotConfigBatch(cIGZPersistResourceManager* pRM, ID3D11Device* pDevice, int maxLotsToProcess);
+    int ProcessLotConfigBatch(cIGZPersistResourceManager* pRM, cIGZImGuiService* pImGuiService, int maxLotsToProcess);
     void FinalizeIncrementalBuild();
 
     // Incremental build progress
@@ -79,7 +80,7 @@ private:
     void BuildExemplarCache(cIGZPersistResourceManager* pRM, LotCacheProgressCallback progressCallback);
 
     // Build lot configuration cache
-    void BuildLotConfigCache(cISC4City* pCity, cIGZPersistResourceManager* pRM, ID3D11Device* pDevice, LotCacheProgressCallback progressCallback);
+    void BuildLotConfigCache(cISC4City* pCity, cIGZPersistResourceManager* pRM, cIGZImGuiService* pImGuiService, LotCacheProgressCallback progressCallback);
 
     // Helper to get cached exemplar by instance ID
     bool GetCachedExemplar(uint32_t instanceID, cRZAutoRefCount<cISCPropertyHolder>& outExemplar);

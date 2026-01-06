@@ -22,20 +22,20 @@
 #include <cstdint>
 
 class cIGZPersistResourceManager;
-struct ID3D11Device;
-struct ID3D11ShaderResourceView;
+class cIGZImGuiService;
+struct IDirectDrawSurface7;
 
 /**
- * Handles loading and converting PNG icons from SC4 resources to D3D11 textures.
+ * Handles loading and converting PNG icons from SC4 resources to DX7 textures.
  */
 class IconLoader {
 public:
     /**
-     * Load an icon from a PNG resource instance ID and create a D3D11 shader resource view.
+     * Load an icon from a PNG resource instance ID and create a DirectDraw surface.
      * @param pRM Resource manager
      * @param iconInstance PNG instance ID
-     * @param pDevice D3D11 device
-     * @param outSRV Output shader resource view (caller must Release when done)
+     * @param pImGuiService ImGui service for DX7 interface access
+     * @param outSurface Output surface (caller must Release when done)
      * @param outWidth Output icon width
      * @param outHeight Output icon height
      * @return true if successful, false otherwise
@@ -43,8 +43,8 @@ public:
     static bool LoadIconFromPNG(
         cIGZPersistResourceManager* pRM,
         uint32_t iconInstance,
-        ID3D11Device* pDevice,
-        ID3D11ShaderResourceView** outSRV,
+        cIGZImGuiService* pImGuiService,
+        IDirectDrawSurface7** outSurface,
         int* outWidth,
         int* outHeight
     );

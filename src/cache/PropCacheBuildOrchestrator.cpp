@@ -20,8 +20,6 @@
  */
 #include "PropCacheBuildOrchestrator.h"
 
-#include <d3d11.h>
-
 #include "cIGZPersistResourceManager.h"
 #include "cISC4City.h"
 #include "GZServPtrs.h"
@@ -37,14 +35,12 @@ PropCacheBuildOrchestrator::PropCacheBuildOrchestrator(
     , isBuilding(false)
     , phase(Phase::NotStarted)
     , pCity(nullptr)
-    , pDevice(nullptr)
-    , pContext(nullptr)
+    , pImGuiService(nullptr)
 {
 }
 
-void PropCacheBuildOrchestrator::SetDeviceContext(ID3D11Device* pDevice, ID3D11DeviceContext* pContext) {
-    this->pDevice = pDevice;
-    this->pContext = pContext;
+void PropCacheBuildOrchestrator::SetImGuiService(cIGZImGuiService* pImGuiService) {
+    this->pImGuiService = pImGuiService;
 }
 
 bool PropCacheBuildOrchestrator::StartBuildCache(cISC4City* pCity)
@@ -59,8 +55,8 @@ bool PropCacheBuildOrchestrator::StartBuildCache(cISC4City* pCity)
         return false;
     }
 
-    if (!pDevice || !pContext) {
-        LOG_WARN("Prop cache build starting without a D3D11 device/context; thumbnails will be skipped");
+    if (!pImGuiService) {
+        LOG_WARN("Prop cache build starting without ImGui service; thumbnails will be skipped");
     }
 
     this->pCity = pCity;
@@ -94,7 +90,7 @@ bool PropCacheBuildOrchestrator::Update() {
             // Process props incrementally (5 per frame)
             cIGZPersistResourceManagerPtr pRM;
 
-            int processed = cacheManager.ProcessPropBatch(pRM, pDevice, pContext, PROPS_PER_FRAME);
+            int processed = cacheManager.ProcessPropBatch(pRM, nullptr, nullptr, PROPS_PER_FRAME);
 
             // Update progress in UI
             int current = cacheManager.GetProcessedPropCount();
@@ -122,8 +118,7 @@ bool PropCacheBuildOrchestrator::Update() {
             isBuilding = false;
             phase = Phase::NotStarted;
             pCity = nullptr;
-            pDevice = nullptr;
-            pContext = nullptr;
+            pImGuiService = nullptr;
 
             return false; // Done
         }
@@ -147,6 +142,5 @@ void PropCacheBuildOrchestrator::Cancel() {
     isBuilding = false;
     phase = Phase::NotStarted;
     pCity = nullptr;
-    pDevice = nullptr;
-    pContext = nullptr;
+    pImGuiService = nullptr;
 }

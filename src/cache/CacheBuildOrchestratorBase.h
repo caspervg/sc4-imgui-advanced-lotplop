@@ -21,8 +21,7 @@
 #pragma once
 
 class cISC4City;
-struct ID3D11Device;
-struct ID3D11DeviceContext;
+class cIGZImGuiService;
 
 /**
  * @brief Abstract base class for incremental cache builders
@@ -32,7 +31,7 @@ struct ID3D11DeviceContext;
  * - Incremental batch processing (spread across frames)
  * - UI feedback and cancellation
  *
- * Call SetDeviceContext() once at initialization, then StartBuildCache() for each build.
+ * Call SetImGuiService() once at initialization, then StartBuildCache() for each build.
  * Derived classes implement the phase-specific logic.
  */
 class CacheBuildOrchestratorBase {
@@ -40,11 +39,10 @@ public:
     virtual ~CacheBuildOrchestratorBase() = default;
 
     /**
-     * @brief Set the D3D11 device and context (call once at initialization)
-     * @param pDevice D3D11 device for rendering
-     * @param pContext D3D11 device context
+     * @brief Set the ImGui service (call once at initialization)
+     * @param pImGuiService ImGui service instance
      */
-    virtual void SetDeviceContext(ID3D11Device* pDevice, ID3D11DeviceContext* pContext) = 0;
+    virtual void SetImGuiService(cIGZImGuiService* pImGuiService) = 0;
 
     /**
      * @brief Start the incremental cache build process

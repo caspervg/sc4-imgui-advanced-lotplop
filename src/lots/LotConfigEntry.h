@@ -3,8 +3,8 @@
 #include <string>
 #include <unordered_set>
 
-// Forward declare D3D11 SRV to avoid including d3d11.h here.
-struct ID3D11ShaderResourceView;
+// Forward declare DirectDraw surface to avoid including ddraw.h here.
+struct IDirectDrawSurface7;
 
 struct LotConfigEntry {
     // Icon type enumeration
@@ -30,9 +30,9 @@ struct LotConfigEntry {
     // Item Icon instance (PNG resource instance id) saved during cache build
     uint32_t iconInstance = 0;
 
-    // Unified icon/thumbnail SRV (either PNG icon or S3D thumbnail, never both)
-    // SRV owned by the cache manager; UI only reads it.
-    ID3D11ShaderResourceView* iconSRV = nullptr;
+    // Unified icon/thumbnail surface (either PNG icon or S3D thumbnail, never both)
+    // Surface owned by the cache manager; UI only reads it.
+    IDirectDrawSurface7* iconSurface = nullptr;
     IconType iconType = IconType::None;
 
     // Dimensions - interpretation depends on iconType:

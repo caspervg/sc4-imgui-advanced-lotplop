@@ -19,6 +19,7 @@
  * If not, see <http://www.gnu.org/licenses/>.
  */
 // ReSharper disable CppDFAUnreachableCode
+#include <ddraw.h>
 #include <d3d11.h>
 #include <cache/LotCacheManager.h>
 
@@ -37,11 +38,11 @@
 #include "../exemplar/IconResourceUtil.h"
 #include "../exemplar/PropertyUtil.h"
 #include "../gfx/IconLoader.h"
-#include "../gfx/DX11ImageLoader.h"
 #include "../gfx/TextureToPNG.h"
 #include "../s3d/S3DThumbnailGenerator.h"
 #include "../utils/Logger.h"
 #include "CacheDatabase.h"
+#include "public/cIGZImGuiService.h"
 
 LotCacheManager::LotCacheManager()
     : cacheInitialized(false),
@@ -59,9 +60,9 @@ void LotCacheManager::Clear() {
     // Release all icon SRVs (PNG or S3D)
     for (auto& kv : lotConfigCache) {
         auto& entry = kv.second;
-        if (entry.iconSRV) {
-            entry.iconSRV->Release();
-            entry.iconSRV = nullptr;
+        if (entry.iconSurface) {
+            entry.iconSurface->Release();
+            entry.iconSurface = nullptr;
         }
         entry.iconType = LotConfigEntry::IconType::None;
     }
@@ -71,12 +72,12 @@ void LotCacheManager::Clear() {
     cacheInitialized = false;
 }
 
-void LotCacheManager::BuildCache(cISC4City* pCity, cIGZPersistResourceManager* pRM, ID3D11Device* pDevice, LotCacheProgressCallback progressCallback) {
+void LotCacheManager::BuildCache(cISC4City* pCity, cIGZPersistResourceManager* pRM, cIGZImGuiService* pImGuiService, LotCacheProgressCallback progressCallback) {
     if (cacheInitialized) return;
 
     LOG_INFO("Building lot cache...");
     BuildExemplarCache(pRM, progressCallback);
-    BuildLotConfigCache(pCity, pRM, pDevice, progressCallback);
+    BuildLotConfigCache(pCity, pRM, pImGuiService, progressCallback);
     cacheInitialized = true;
     LOG_INFO("Lot cache built: {} entries", lotConfigCache.size());
 }
@@ -127,7 +128,7 @@ void LotCacheManager::BuildExemplarCache(cIGZPersistResourceManager* pRM, LotCac
     LOG_INFO("Exemplar cache built: {} exemplars across {} unique instance IDs", exemplarCount, exemplarCache.size());
 }
 
-void LotCacheManager::BuildLotConfigCache(cISC4City* pCity, cIGZPersistResourceManager* pRM, ID3D11Device* pDevice, LotCacheProgressCallback progressCallback) {
+void LotCacheManager::BuildLotConfigCache(cISC4City* pCity, cIGZPersistResourceManager* pRM, cIGZImGuiService* pImGuiService, LotCacheProgressCallback progressCallback) {
     LOG_INFO("Building lot configuration cache...");
 
     if (progressCallback) {
@@ -200,11 +201,11 @@ void LotCacheManager::BuildLotConfigCache(cISC4City* pCity, cIGZPersistResourceM
                                 if (ExemplarUtil::GetItemIconInstance(pBuildingExemplar, iconInstance)) {
                                     entry.iconInstance = iconInstance;
 
-                                    if (pDevice) {
-                                        ID3D11ShaderResourceView* srv = nullptr;
+                                    if (pImGuiService) {
+                                        IDirectDrawSurface7* surface = nullptr;
                                         int w = 0, h = 0;
-                                        if (IconLoader::LoadIconFromPNG(pRM, iconInstance, pDevice, &srv, &w, &h)) {
-                                            entry.iconSRV = srv;
+                                        if (IconLoader::LoadIconFromPNG(pRM, iconInstance, pImGuiService, &surface, &w, &h)) {
+                                            entry.iconSurface = surface;
                                             entry.iconWidth = w;
                                             entry.iconHeight = h;
                                             entry.iconType = LotConfigEntry::IconType::PNG;
@@ -213,27 +214,13 @@ void LotCacheManager::BuildLotConfigCache(cISC4City* pCity, cIGZPersistResourceM
                                 }
 
                                 // If no PNG icon loaded, try S3D thumbnail as fallback
-                                if (entry.iconType == LotConfigEntry::IconType::None && pDevice) {
-                                    // Get device context for rendering
-                                    ID3D11DeviceContext* pContext = nullptr;
-                                    pDevice->GetImmediateContext(&pContext);
-
-                                    if (pContext) {
-                                        // Generate S3D thumbnail (64x64, zoom 5, rotation 0 for standard view)
-                                        ID3D11ShaderResourceView* s3dSRV = S3D::ThumbnailGenerator::GenerateThumbnailFromExemplar(
-                                            pBuildingExemplar, pRM, pDevice, pContext, 44, 5, 0
-                                        );
-
-                                        if (s3dSRV) {
-                                            entry.iconSRV = s3dSRV;
-                                            entry.iconWidth = 44;
-                                            entry.iconHeight = 44;
-                                            entry.iconType = LotConfigEntry::IconType::S3D;
-                                            LOG_DEBUG("Generated S3D thumbnail for lot 0x{:08X} ({})", lotConfigID, entry.name);
-                                        }
-
-                                        pContext->Release();
+                                if (entry.iconType == LotConfigEntry::IconType::None) {
+#if 0
+                                    // TODO: DX7 thumbnail rendering
+                                    if (pImGuiService) {
+                                        // Placeholder for future DX7 thumbnail generation.
                                     }
+#endif
                                 }
 
                                 // Occupant groups
@@ -381,7 +368,7 @@ void LotCacheManager::BeginLotConfigProcessing(cISC4City* pCity) {
     lotConfigCache.reserve(2048);
 }
 
-int LotCacheManager::ProcessLotConfigBatch(cIGZPersistResourceManager* pRM, ID3D11Device* pDevice, int maxLotsToProcess) {
+int LotCacheManager::ProcessLotConfigBatch(cIGZPersistResourceManager* pRM, cIGZImGuiService* pImGuiService, int maxLotsToProcess) {
     if (!pCityForIncremental || !pRM) return 0;
 
     cISC4LotConfigurationManager* pLotConfigMgr = pCityForIncremental->GetLotConfigurationManager();
@@ -451,11 +438,11 @@ int LotCacheManager::ProcessLotConfigBatch(cIGZPersistResourceManager* pRM, ID3D
                             if (ExemplarUtil::GetItemIconInstance(pBuildingExemplar, iconInstance)) {
                                 entry.iconInstance = iconInstance;
 
-                                if (pDevice) {
-                                    ID3D11ShaderResourceView* srv = nullptr;
+                                if (pImGuiService) {
+                                    IDirectDrawSurface7* surface = nullptr;
                                     int w = 0, h = 0;
-                                    if (IconLoader::LoadIconFromPNG(pRM, iconInstance, pDevice, &srv, &w, &h)) {
-                                        entry.iconSRV = srv;
+                                    if (IconLoader::LoadIconFromPNG(pRM, iconInstance, pImGuiService, &surface, &w, &h)) {
+                                        entry.iconSurface = surface;
                                         entry.iconWidth = w;
                                         entry.iconHeight = h;
                                         entry.iconType = LotConfigEntry::IconType::PNG;
@@ -464,26 +451,13 @@ int LotCacheManager::ProcessLotConfigBatch(cIGZPersistResourceManager* pRM, ID3D
                             }
 
                             // If no PNG icon loaded, try S3D thumbnail as fallback
-                            if (entry.iconType == LotConfigEntry::IconType::None && pDevice) {
-                                ID3D11DeviceContext* pContext = nullptr;
-                                pDevice->GetImmediateContext(&pContext);
-
-
-                                if (pContext) {
-                                    ID3D11ShaderResourceView* s3dSRV = S3D::ThumbnailGenerator::GenerateThumbnailFromExemplar(
-                                        pBuildingExemplar, pRM, pDevice, pContext, kThumbnailSize, 5, 0
-                                    );
-
-                                    if (s3dSRV) {
-                                        entry.iconSRV = s3dSRV;
-                                        entry.iconWidth = kThumbnailSize;
-                                        entry.iconHeight = kThumbnailSize;
-                                        entry.iconType = LotConfigEntry::IconType::S3D;
-                                        LOG_DEBUG("Generated S3D thumbnail for lot 0x{:08X} ({})", lotConfigID, entry.name);
-                                    }
-
-                                    pContext->Release();
+                            if (entry.iconType == LotConfigEntry::IconType::None) {
+#if 0
+                                // TODO: DX7 thumbnail rendering
+                                if (pImGuiService) {
+                                    // Placeholder for future DX7 thumbnail generation.
                                 }
+#endif
                             }
 
                             // Occupant groups
@@ -542,6 +516,9 @@ void LotCacheManager::FinalizeIncrementalBuild() {
 }
 
 bool LotCacheManager::LoadFromDatabase(const std::filesystem::path& dbPath, ID3D11Device* pDevice, ID3D11DeviceContext* pContext) {
+    LOG_WARN("DX7 cache load not implemented; skipping {}", dbPath.string());
+    return false;
+#if 0
     if (!pDevice || !pContext) {
         Logger::LOG_ERROR("Invalid device or context for cache loading");
         return false;
@@ -600,9 +577,13 @@ bool LotCacheManager::LoadFromDatabase(const std::filesystem::path& dbPath, ID3D
     cacheInitialized = (loadedCount > 0);
     Logger::LOG_INFO("Loaded {} lots from cache database in {}", loadedCount, dbPath.string());
     return cacheInitialized;
+#endif
 }
 
 bool LotCacheManager::SaveToDatabase(const std::filesystem::path& dbPath, ID3D11Device* pDevice, ID3D11DeviceContext* pContext) {
+    LOG_WARN("DX7 cache save not implemented; skipping {}", dbPath.string());
+    return false;
+#if 0
     if (!pDevice || !pContext) {
         Logger::LOG_ERROR("Invalid device or context for cache saving");
         return false;
@@ -679,4 +660,5 @@ bool LotCacheManager::SaveToDatabase(const std::filesystem::path& dbPath, ID3D11
 
     Logger::LOG_INFO("Saved {} lots ({} with thumbnails) to cache database: {}", savedCount, thumbnailCount, dbPath.string());
     return true;
+#endif
 }

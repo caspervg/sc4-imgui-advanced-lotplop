@@ -434,3 +434,9 @@ void PropPainterUI::RenderPreviewOverlay() {
     // TODO: Add area fill boundary rendering here when that mode is implemented
     // if (preview.isDefiningArea) { ... }
 }
+
+void PropPainterUI::ResetPreviewState() {
+    paintingActive = false;
+    pInputControl = nullptr;
+    pRenderer = nullptr;
+}

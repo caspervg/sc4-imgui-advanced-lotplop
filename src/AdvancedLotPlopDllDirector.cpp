@@ -99,7 +99,9 @@ public:
           imGuiService(nullptr),
           lotPlopPanelRegistered(false),
           propPainterPanelRegistered(false),
-          lastUpdateFrame(-1) {
+          lastUpdateFrame(-1),
+          isShuttingDown(false),
+          imGuiDeviceGeneration(0) {
         std::string userDir;
         cISC4AppPtr pSC4App;
         if (pSC4App) {
@@ -155,6 +157,7 @@ public:
     }
 
     void PostCityInit(cIGZMessage2Standard *pStandardMsg) {
+        isShuttingDown = false;
         cISC4AppPtr pSC4App;
         cIGZMessageServer2Ptr pMessageServer;
         cIGZApp *pApp = mpFrameWork->Application();
@@ -276,6 +279,7 @@ public:
     }
 
     void PreCityShutdown(cIGZMessage2Standard *pStandardMsg) {
+        isShuttingDown = true;
         // Unregister shortcut notifications
         shortcutManager.UnregisterShortcuts(
             this,
@@ -285,6 +289,23 @@ public:
         // Cancel any pending incremental cache build
         if (lotCacheBuildOrchestrator.IsBuilding()) {
             lotCacheBuildOrchestrator.Cancel();
+        }
+        if (propCacheBuildOrchestrator.IsBuilding()) {
+            propCacheBuildOrchestrator.Cancel();
+        }
+
+        if (bool* showLot = mLotPlopUI.GetShowWindowPtr()) {
+            *showLot = false;
+        }
+        if (bool* showProp = mPropPaintUI.GetShowWindowPtr()) {
+            *showProp = false;
+        }
+
+        if (mPropPaintUI.IsPaintingActive()) {
+            propPainterControlManager.StopPainting(pView3D);
+            mPropPaintUI.ResetPreviewState();
+        } else {
+            mPropPaintUI.ResetPreviewState();
         }
 
         LOG_INFO("Skipping cache save during DX7 ImGui migration");
@@ -314,9 +335,12 @@ public:
 
         lotCacheManager.Clear();
         propCacheManager.Clear();
+        lotEntries.clear();
 
         // Ensure UI no longer references city resources during shutdown
         mLotPlopUI.SetCity(nullptr);
+        mPropPaintUI.SetInputControl(nullptr);
+        mPropPaintUI.SetRenderer(nullptr);
 
         // Reset COM pointers (cRZAutoRefCount handles Release() automatically)
         pCity = nullptr;
@@ -346,10 +370,43 @@ public:
             return;
         }
         lastUpdateFrame = frame;
+        if (imGuiService) {
+            const uint32_t currentGen = imGuiService->GetDeviceGeneration();
+            if (currentGen != 0 && currentGen != imGuiDeviceGeneration) {
+                LOG_INFO("ImGui device generation changed ({} -> {}), clearing cached surfaces",
+                         imGuiDeviceGeneration, currentGen);
+                imGuiDeviceGeneration = currentGen;
+                isShuttingDown = true;
+                if (lotCacheBuildOrchestrator.IsBuilding()) {
+                    lotCacheBuildOrchestrator.Cancel();
+                }
+                if (propCacheBuildOrchestrator.IsBuilding()) {
+                    propCacheBuildOrchestrator.Cancel();
+                }
+                lotCacheManager.Clear();
+                propCacheManager.Clear();
+                lotEntries.clear();
+                if (bool* showLot = mLotPlopUI.GetShowWindowPtr()) {
+                    *showLot = false;
+                }
+                if (bool* showProp = mPropPaintUI.GetShowWindowPtr()) {
+                    *showProp = false;
+                }
+                if (mPropPaintUI.IsPaintingActive()) {
+                    propPainterControlManager.StopPainting(pView3D);
+                }
+                mPropPaintUI.ResetPreviewState();
+                isShuttingDown = false;
+                BuildCache();
+            }
+        }
         Update();
     }
 
     void RenderLotPlopUI() override {
+        if (isShuttingDown) {
+            return;
+        }
         bool *pShow = mLotPlopUI.GetShowWindowPtr();
         if (pShow && *pShow) {
             // Delegate to UI class
@@ -358,6 +415,9 @@ public:
     }
 
     void RenderPropPainterUI() override {
+        if (isShuttingDown) {
+            return;
+        }
         // Render prop painter window independently
         bool *pShowPropPainter = mPropPaintUI.GetShowWindowPtr();
         if (pShowPropPainter && *pShowPropPainter) {
@@ -374,9 +434,11 @@ private:
     cISC4View3DWin* pView3D;
     cRZAutoRefCount<cIGZMessageServer2> pMS2;
     cIGZImGuiService* imGuiService;
+    uint32_t imGuiDeviceGeneration;
     bool lotPlopPanelRegistered;
     bool propPainterPanelRegistered;
     int lastUpdateFrame;
+    bool isShuttingDown;
 
     // Services
     LotCacheManager lotCacheManager;

@@ -3,6 +3,7 @@
 #include <ddraw.h>
 #include <wincodec.h>
 #include <wil/com.h>
+#include <cstdint>
 
 namespace gfx {
 namespace {
@@ -20,7 +21,7 @@ namespace {
         if (FAILED(factory->CreateStream(&stream)))
             return false;
 
-        if (FAILED(stream->InitializeFromMemory((WICInProcPointer)data,
+        if (FAILED(stream->InitializeFromMemory(WICInProcPointer(data),
                                                 static_cast<DWORD>(size))))
             return false;
 
@@ -48,7 +49,7 @@ namespace {
 
         size_t stride = static_cast<size_t>(w) * 4;
         size_t bufSize = stride * static_cast<size_t>(h);
-        uint8_t* pixels = static_cast<uint8_t*>(malloc(bufSize));
+        auto* pixels = static_cast<uint8_t*>(malloc(bufSize));
         if (!pixels)
             return false;
 
@@ -137,6 +138,64 @@ bool CreateSurfaceFromPNGMemory(const void* data, size_t size,
     *out_surface = surface;
     if (out_width) *out_width = static_cast<int>(w);
     if (out_height) *out_height = static_cast<int>(h);
+    return true;
+}
+
+bool CreateSurfaceFromRGBA(const uint8_t* rgba,
+                           int width,
+                           int height,
+                           IDirectDraw7* ddraw,
+                           IDirectDrawSurface7** out_surface)
+{
+    if (!rgba || width <= 0 || height <= 0 || !ddraw || !out_surface) {
+        return false;
+    }
+
+    DDSURFACEDESC2 desc{};
+    desc.dwSize = sizeof(desc);
+    desc.dwFlags = DDSD_CAPS | DDSD_WIDTH | DDSD_HEIGHT | DDSD_PIXELFORMAT;
+    desc.dwWidth = static_cast<DWORD>(width);
+    desc.dwHeight = static_cast<DWORD>(height);
+    desc.ddsCaps.dwCaps = DDSCAPS_TEXTURE | DDSCAPS_VIDEOMEMORY;
+
+    DDPIXELFORMAT pf{};
+    pf.dwSize = sizeof(pf);
+    pf.dwFlags = DDPF_ALPHAPIXELS | DDPF_RGB;
+    pf.dwRGBBitCount = 32;
+    pf.dwRGBAlphaBitMask = 0xFF000000;
+    pf.dwRBitMask = 0x00FF0000;
+    pf.dwGBitMask = 0x0000FF00;
+    pf.dwBBitMask = 0x000000FF;
+    desc.ddpfPixelFormat = pf;
+
+    IDirectDrawSurface7* surface = nullptr;
+    if (FAILED(ddraw->CreateSurface(&desc, &surface, nullptr))) {
+        desc.ddsCaps.dwCaps = DDSCAPS_TEXTURE | DDSCAPS_SYSTEMMEMORY;
+        if (FAILED(ddraw->CreateSurface(&desc, &surface, nullptr))) {
+            return false;
+        }
+    }
+
+    RECT rect{0, 0, static_cast<LONG>(width), static_cast<LONG>(height)};
+    DDSURFACEDESC2 lockDesc{};
+    lockDesc.dwSize = sizeof(lockDesc);
+    if (FAILED(surface->Lock(&rect, &lockDesc, 0, 0))) {
+        surface->Release();
+        return false;
+    }
+
+    const uint32_t* src = reinterpret_cast<const uint32_t*>(rgba);
+    for (int y = 0; y < height; ++y) {
+        uint32_t* dst = reinterpret_cast<uint32_t*>(
+            static_cast<uint8_t*>(lockDesc.lpSurface) + y * lockDesc.lPitch);
+        const uint32_t* row = src + y * width;
+        for (int x = 0; x < width; ++x) {
+            dst[x] = RgbaToBgra(row[x]);
+        }
+    }
+
+    surface->Unlock(nullptr);
+    *out_surface = surface;
     return true;
 }
 

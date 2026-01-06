@@ -173,7 +173,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/vendor/wi
 
 # Windows-specific libraries
 if(WIN32)
-    target_link_libraries(${PROJECT_NAME} PRIVATE kernel32 user32 Version d3d11 dxgi windowscodecs)
+    target_link_libraries(${PROJECT_NAME} PRIVATE kernel32 user32 Version d3d11 dxgi windowscodecs ddraw dxguid)
 endif()
 
 # Set output properties

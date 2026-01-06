@@ -1,6 +1,8 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
+#include <cstdint>
 
 struct IDirectDraw7;
 struct IDirectDrawSurface7;
@@ -13,4 +15,11 @@ namespace gfx {
                                     IDirectDrawSurface7** out_surface,
                                     int* out_width,
                                     int* out_height);
+
+    // Creates a DirectDraw surface from RGBA8 data (converted to BGRA for DDraw).
+    bool CreateSurfaceFromRGBA(const uint8_t* rgba,
+                               int width,
+                               int height,
+                               IDirectDraw7* ddraw,
+                               IDirectDrawSurface7** out_surface);
 }

@@ -86,6 +86,11 @@ public:
      */
     void RenderPreviewOverlay();
 
+    /**
+     * @brief Reset preview state and clear renderer/input control references
+     */
+    void ResetPreviewState();
+
 private:
     void RenderLoadingWindow();
     void RenderToolbar();

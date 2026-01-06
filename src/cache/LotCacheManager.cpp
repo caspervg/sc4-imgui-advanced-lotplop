@@ -39,7 +39,7 @@
 #include "../exemplar/PropertyUtil.h"
 #include "../gfx/IconLoader.h"
 #include "../gfx/TextureToPNG.h"
-#include "../s3d/S3DThumbnailGenerator.h"
+#include "../s3d/S3DThumbnailGeneratorDX7.h"
 #include "../utils/Logger.h"
 #include "CacheDatabase.h"
 #include "public/cIGZImGuiService.h"
@@ -215,12 +215,22 @@ void LotCacheManager::BuildLotConfigCache(cISC4City* pCity, cIGZPersistResourceM
 
                                 // If no PNG icon loaded, try S3D thumbnail as fallback
                                 if (entry.iconType == LotConfigEntry::IconType::None) {
-#if 0
-                                    // TODO: DX7 thumbnail rendering
                                     if (pImGuiService) {
-                                        // Placeholder for future DX7 thumbnail generation.
+                                        IDirectDrawSurface7* surface =
+                                            S3D::ThumbnailGeneratorDX7::GenerateThumbnailFromExemplar(
+                                                pBuildingExemplar,
+                                                pRM,
+                                                pImGuiService,
+                                                kThumbnailSize,
+                                                5,
+                                                0);
+                                        if (surface) {
+                                            entry.iconSurface = surface;
+                                            entry.iconWidth = kThumbnailSize;
+                                            entry.iconHeight = kThumbnailSize;
+                                            entry.iconType = LotConfigEntry::IconType::S3D;
+                                        }
                                     }
-#endif
                                 }
 
                                 // Occupant groups
@@ -452,12 +462,22 @@ int LotCacheManager::ProcessLotConfigBatch(cIGZPersistResourceManager* pRM, cIGZ
 
                             // If no PNG icon loaded, try S3D thumbnail as fallback
                             if (entry.iconType == LotConfigEntry::IconType::None) {
-#if 0
-                                // TODO: DX7 thumbnail rendering
                                 if (pImGuiService) {
-                                    // Placeholder for future DX7 thumbnail generation.
+                                    IDirectDrawSurface7* surface =
+                                        S3D::ThumbnailGeneratorDX7::GenerateThumbnailFromExemplar(
+                                            pBuildingExemplar,
+                                            pRM,
+                                            pImGuiService,
+                                            kThumbnailSize,
+                                            5,
+                                            0);
+                                    if (surface) {
+                                        entry.iconSurface = surface;
+                                        entry.iconWidth = kThumbnailSize;
+                                        entry.iconHeight = kThumbnailSize;
+                                        entry.iconType = LotConfigEntry::IconType::S3D;
+                                    }
                                 }
-#endif
                             }
 
                             // Occupant groups

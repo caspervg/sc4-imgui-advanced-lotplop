@@ -1,7 +1,7 @@
 #pragma once
 #include <cstdint>
 #include <string>
-#include <d3d11.h>
+#include "public/cIGZImGuiService.h"
 
 /**
  * @brief Represents a cached prop entry with metadata and thumbnail
@@ -14,8 +14,8 @@ struct PropCacheEntry {
     };
 
     uint32_t propID = 0;              // Prop type ID (same as exemplarIID)
-    std::string name;                  // Prop name
-    uint32_t exemplarIID = 0;          // Exemplar instance ID (same as propID)
+    std::string name;                 // Prop name
+    uint32_t exemplarIID = 0;         // Exemplar instance ID (same as propID)
 
     // Exemplar resource key (for cache persistence)
     uint32_t exemplarGroup = 0;       // Exemplar group ID (exemplarIID IS the instance)
@@ -27,63 +27,13 @@ struct PropCacheEntry {
 
     // Thumbnail data
     IconType iconType = IconType::None;
-    ID3D11ShaderResourceView* iconSRV = nullptr;
+    ImGuiTextureHandle iconHandle{0, 0};
     int iconWidth = 0;
     int iconHeight = 0;
 
     // Metadata
-    uint32_t familyType = 0;           // Prop family (if applicable)
-
-    ~PropCacheEntry() {
-        if (iconSRV) {
-            iconSRV->Release();
-            iconSRV = nullptr;
-        }
-    }
-
-    // Disable copy to prevent double-free
-    PropCacheEntry(const PropCacheEntry&) = delete;
-    PropCacheEntry& operator=(const PropCacheEntry&) = delete;
-
-    // Enable move
-    PropCacheEntry(PropCacheEntry&& other) noexcept
-        : propID(other.propID)
-        , name(std::move(other.name))
-        , exemplarIID(other.exemplarIID)
-        , exemplarGroup(other.exemplarGroup)
-        , s3dType(other.s3dType)
-        , s3dGroup(other.s3dGroup)
-        , s3dInstance(other.s3dInstance)
-        , iconType(other.iconType)
-        , iconSRV(other.iconSRV)
-        , iconWidth(other.iconWidth)
-        , iconHeight(other.iconHeight)
-        , familyType(other.familyType)
-    {
-        other.iconSRV = nullptr;
-    }
-
-    PropCacheEntry& operator=(PropCacheEntry&& other) noexcept {
-        if (this != &other) {
-            if (iconSRV) {
-                iconSRV->Release();
-            }
-            propID = other.propID;
-            name = std::move(other.name);
-            exemplarIID = other.exemplarIID;
-            exemplarGroup = other.exemplarGroup;
-            s3dType = other.s3dType;
-            s3dGroup = other.s3dGroup;
-            s3dInstance = other.s3dInstance;
-            iconType = other.iconType;
-            iconSRV = other.iconSRV;
-            iconWidth = other.iconWidth;
-            iconHeight = other.iconHeight;
-            familyType = other.familyType;
-            other.iconSRV = nullptr;
-        }
-        return *this;
-    }
+    uint32_t familyType = 0;          // Prop family (if applicable)
 
     PropCacheEntry() = default;
 };
+

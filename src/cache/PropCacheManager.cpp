@@ -1,22 +1,24 @@
 #define NOMINMAX
 #include "PropCacheManager.h"
 
-#include <d3d11.h>
+#include <algorithm>
+#include <ddraw.h>
 
 #include "cGZPersistResourceKey.h"
 #include "cIGZPersistResourceManager.h"
 #include "cIGZString.h"
 #include "cISC4City.h"
 #include "cISC4PropManager.h"
+#include "cRZBaseString.h"
 #include "cISCPropertyHolder.h"
 #include "cRZAutoRefCount.h"
 #include "SC4Vector.h"
 #include "../exemplar/PropertyUtil.h"
-#include "../s3d/S3DThumbnailGenerator.h"
-#include "../gfx/DX11ImageLoader.h"
-#include "../gfx/TextureToPNG.h"
+#include "../s3d/S3DThumbnailGeneratorDX7.h"
+#include "../gfx/DX7ImageLoader.h"
 #include "../utils/Logger.h"
 #include "CacheDatabase.h"
+#include "public/cIGZImGuiService.h"
 
 static constexpr uint32_t kResourceKeyType1 = 0x27812821; // RKT1
 
@@ -24,6 +26,7 @@ PropCacheManager::PropCacheManager()
     : initialized(false)
     , pPropManager(nullptr)
     , progressCallback(nullptr)
+    , pImGuiService(nullptr)
 {
 }
 
@@ -32,6 +35,29 @@ PropCacheManager::~PropCacheManager() {
 }
 
 void PropCacheManager::Clear() {
+    if (pImGuiService) {
+        for (auto& prop : props) {
+            if (prop.iconHandle.id != 0) {
+                pImGuiService->ReleaseTexture(prop.iconHandle);
+                prop.iconHandle = {0, 0};
+            }
+        }
+    }
+
+    props.clear();
+    propIDToIndex.clear();
+    familyTypes.clear();
+    pPropManager = nullptr;
+    initialized = false;
+}
+
+void PropCacheManager::ClearWithoutRelease() {
+    // Clear all cached data WITHOUT releasing textures
+    // Use this during device resets when the ImGui service is invalid or being reset
+    for (auto& prop : props) {
+        prop.iconHandle = {0, 0};
+    }
+
     props.clear();
     propIDToIndex.clear();
     familyTypes.clear();
@@ -42,8 +68,8 @@ void PropCacheManager::Clear() {
 bool PropCacheManager::Initialize(
     cISC4City* pCity,
     cIGZPersistResourceManager* pRM,
-    ID3D11Device* pDevice,
-    ID3D11DeviceContext* pContext,
+    ID3D11Device* /*pDevice*/,
+    ID3D11DeviceContext* /*pContext*/,
     ProgressCallback callback)
 {
     if (initialized) {
@@ -72,7 +98,7 @@ bool PropCacheManager::Initialize(
     familyTypes.assign(families.begin(), families.end());
     LOG_INFO("Found {} prop families", familyTypes.size());
 
-    bool result = LoadPropsFromManager(this->pPropManager, pRM, pDevice, pContext);
+    bool result = LoadPropsFromManager(this->pPropManager, pRM, nullptr, nullptr);
 
     if (result) {
         LOG_INFO("Prop cache initialized with {} props", props.size());
@@ -130,8 +156,8 @@ bool PropCacheManager::BeginIncrementalBuild(cISC4City* pCity) {
 
 int PropCacheManager::ProcessPropBatch(
     cIGZPersistResourceManager* pRM,
-    ID3D11Device* pDevice,
-    ID3D11DeviceContext* pContext,
+    ID3D11Device* /*pDevice*/,
+    ID3D11DeviceContext* /*pContext*/,
     int batchSize)
 {
     if (propTypesToProcess.empty() || currentPropIndex >= static_cast<int>(propTypesToProcess.size())) {
@@ -143,7 +169,7 @@ int PropCacheManager::ProcessPropBatch(
 
     for (int i = currentPropIndex; i < endIndex; ++i) {
         uint32_t propID = propTypesToProcess[i];
-        if (ProcessPropEntry(propID, pRM, pDevice, pContext)) {
+        if (ProcessPropEntry(propID, pRM, nullptr, nullptr)) {
             processed++;
             processedPropCount++;
         }
@@ -175,8 +201,8 @@ void PropCacheManager::FinalizeIncrementalBuild() {
 bool PropCacheManager::ProcessPropEntry(
     uint32_t propID,
     cIGZPersistResourceManager* pRM,
-    ID3D11Device* pDevice,
-    ID3D11DeviceContext* pContext)
+    ID3D11Device* /*pDevice*/,
+    ID3D11DeviceContext* /*pContext*/)
 {
     PropCacheEntry entry;
     entry.propID = propID;
@@ -205,9 +231,9 @@ bool PropCacheManager::ProcessPropEntry(
     }
 
     constexpr uint32_t kPropExemplarName = 0x00000020;
-    const auto propName = new cRZBaseString(64);
-    pPropExemplar->GetProperty(kPropExemplarName, *propName);
-    entry.name = propName->ToChar();
+    cRZBaseString propName(64);
+    pPropExemplar->GetProperty(kPropExemplarName, propName);
+    entry.name = propName.ToChar();
 
     // Extract S3D resource key from RKT1 property
     cGZPersistResourceKey s3dKey;
@@ -220,24 +246,36 @@ bool PropCacheManager::ProcessPropEntry(
         entry.s3dGroup = s3dKey.group;
         entry.s3dInstance = s3dKey.instance;
 
-        // Generate S3D thumbnail if D3D11 is available
-        if (pDevice && pContext) {
-            ID3D11ShaderResourceView* s3dSRV =
-                S3D::ThumbnailGenerator::GenerateThumbnailFromExemplar(
+        // Generate S3D thumbnail if ImGui service is available
+        if (pImGuiService) {
+            IDirectDrawSurface7* surface =
+                S3D::ThumbnailGeneratorDX7::GenerateThumbnailFromExemplar(
                     pPropExemplar,
                     pRM,
-                    pDevice,
-                    pContext,
+                    pImGuiService,
                     64,  // thumbnail size
                     5,   // zoom level (closest)
                     0    // rotation (south)
                 );
 
-            if (s3dSRV) {
-                entry.iconSRV = s3dSRV;
-                entry.iconWidth = 64;
-                entry.iconHeight = 64;
-                entry.iconType = PropCacheEntry::IconType::S3D;
+            if (surface) {
+                std::vector<uint8_t> rgba;
+                if (gfx::SurfaceToRGBA(surface, 64, 64, rgba)) {
+                    ImGuiTextureDesc desc{};
+                    desc.width = 64;
+                    desc.height = 64;
+                    desc.pixels = rgba.data();
+                    desc.useSystemMemory = false;
+
+                    ImGuiTextureHandle handle = pImGuiService->CreateTexture(desc);
+                    if (handle.id != 0) {
+                        entry.iconHandle = handle;
+                        entry.iconWidth = 64;
+                        entry.iconHeight = 64;
+                        entry.iconType = PropCacheEntry::IconType::S3D;
+                    }
+                }
+                surface->Release();
             }
         }
     }
@@ -251,8 +289,8 @@ bool PropCacheManager::ProcessPropEntry(
 bool PropCacheManager::LoadPropsFromManager(
     cISC4PropManager* pPropManager,
     cIGZPersistResourceManager* pRM,
-    ID3D11Device* pDevice,
-    ID3D11DeviceContext* pContext)
+    ID3D11Device* /*pDevice*/,
+    ID3D11DeviceContext* /*pContext*/)
 {
     // Get all prop types from the manager
     SC4Vector<uint32_t> propTypes;
@@ -276,7 +314,7 @@ bool PropCacheManager::LoadPropsFromManager(
             progressCallback("Loading props", currentIdx, total);
         }
 
-        ProcessPropEntry(propID, pRM, pDevice, pContext);
+        ProcessPropEntry(propID, pRM, nullptr, nullptr);
     }
 
     LOG_INFO("Successfully loaded {} props with thumbnails", props.size());
@@ -291,144 +329,12 @@ const PropCacheEntry* PropCacheManager::GetPropByID(uint32_t propID) const {
     return nullptr;
 }
 
-bool PropCacheManager::LoadFromDatabase(const std::filesystem::path& dbPath, ID3D11Device* pDevice, ID3D11DeviceContext* pContext) {
-    if (!pDevice || !pContext) {
-        Logger::LOG_ERROR("Invalid device or context for prop cache loading");
-        return false;
-    }
-
-    CacheDatabase db;
-    if (!db.OpenOrCreate(dbPath)) {
-        Logger::LOG_ERROR("Failed to open cache database: {}", dbPath.string());
-        return false;
-    }
-
-    // Validate cache version
-    std::string version = db.GetMetadata("cache_version");
-    if (version != "1") {
-        Logger::LOG_WARN("Cache version mismatch (expected 1, got {}), rebuild required", version);
-        return false;
-    }
-
-    // Load all prop keys
-    auto keys = db.GetAllPropKeys();
-    if (keys.empty()) {
-        Logger::LOG_WARN("Cache database has no props");
-        return false;
-    }
-
-    Logger::LOG_INFO("Loading {} props from cache database...", keys.size());
-
-    int loadedCount = 0;
-    for (auto [group, instance] : keys) {
-        auto result = db.LoadProp(group, instance);
-        if (!result) {
-            Logger::LOG_WARN("Failed to load prop {}/{} from database", group, instance);
-            continue;
-        }
-
-        auto& [prop, pngBlob] = *result;
-
-        // Create texture from PNG BLOB
-        if (!pngBlob.empty()) {
-            ID3D11ShaderResourceView* srv = nullptr;
-            int w = 0, h = 0;
-            if (gfx::CreateSRVFromPNGMemory(pngBlob.data(), pngBlob.size(), pDevice, &srv, &w, &h)) {
-                prop.iconSRV = srv;
-                prop.iconWidth = w;
-                prop.iconHeight = h;
-            } else {
-                Logger::LOG_WARN("Failed to decode PNG thumbnail for prop {}", prop.propID);
-            }
-        }
-
-        // Store in cache
-        size_t index = props.size();
-        props.push_back(std::move(prop));
-        propIDToIndex[props[index].propID] = index;
-        loadedCount++;
-    }
-
-    initialized = (loadedCount > 0);
-    Logger::LOG_INFO("Loaded {} props from cache database in {}", loadedCount, dbPath.string());
-    return initialized;
+bool PropCacheManager::LoadFromDatabase(const std::filesystem::path& dbPath, ID3D11Device* /*pDevice*/, ID3D11DeviceContext* /*pContext*/) {
+    LOG_WARN("DX7 prop cache load not implemented; skipping {}", dbPath.string());
+    return false;
 }
 
-bool PropCacheManager::SaveToDatabase(const std::filesystem::path& dbPath, ID3D11Device* pDevice, ID3D11DeviceContext* pContext) {
-    if (!pDevice || !pContext) {
-        Logger::LOG_ERROR("Invalid device or context for prop cache saving");
-        return false;
-    }
-
-    if (!initialized || props.empty()) {
-        Logger::LOG_WARN("Prop cache not initialized or empty, nothing to save");
-        return false;
-    }
-
-    CacheDatabase db;
-    if (!db.OpenOrCreate(dbPath)) {
-        Logger::LOG_ERROR("Failed to open cache database for saving: {}", dbPath.string());
-        return false;
-    }
-
-    Logger::LOG_INFO("Saving {} props to cache database...", props.size());
-
-    // Use transaction for bulk insert (much faster)
-    if (!db.BeginTransaction()) {
-        Logger::LOG_ERROR("Failed to begin transaction");
-        return false;
-    }
-
-    int savedCount = 0;
-    int thumbnailCount = 0;
-    for (const auto& prop : props) {
-        // Encode thumbnail to PNG
-        std::vector<uint8_t> pngBlob;
-        if (prop.iconSRV) {
-            ID3D11Resource* resource = nullptr;
-            prop.iconSRV->GetResource(&resource);
-            if (resource) {
-                ID3D11Texture2D* texture = nullptr;
-                HRESULT hr = resource->QueryInterface(__uuidof(ID3D11Texture2D),
-                                                       reinterpret_cast<void**>(&texture));
-                if (SUCCEEDED(hr) && texture) {
-                    if (TextureToPNG::Encode(pDevice, pContext, texture, pngBlob)) {
-                        thumbnailCount++;
-                    } else {
-                        Logger::LOG_WARN("Failed to encode PNG thumbnail for prop 0x{:08X}", prop.propID);
-                    }
-                    texture->Release();
-                }
-                resource->Release();
-            }
-        }
-
-        // Save to database
-        if (db.SaveProp(prop, pngBlob)) {
-            savedCount++;
-        } else {
-            Logger::LOG_ERROR("Failed to save prop 0x{:08X} to database", prop.propID);
-        }
-    }
-
-    // Set metadata
-    db.SetMetadata("cache_version", "1");
-
-    // Get current timestamp
-    auto now = std::chrono::system_clock::now();
-    auto time_t_now = std::chrono::system_clock::to_time_t(now);
-    std::tm tm_now;
-    localtime_s(&tm_now, &time_t_now);
-    char timestamp[32];
-    std::strftime(timestamp, sizeof(timestamp), "%Y-%m-%dT%H:%M:%S", &tm_now);
-    db.SetMetadata("last_build", timestamp);
-    db.SetMetadata("prop_count", std::to_string(savedCount));
-
-    if (!db.CommitTransaction()) {
-        Logger::LOG_ERROR("Failed to commit transaction");
-        return false;
-    }
-
-    Logger::LOG_INFO("Saved {} props ({} with thumbnails) to cache database: {}", savedCount, thumbnailCount, dbPath.string());
-    return true;
+bool PropCacheManager::SaveToDatabase(const std::filesystem::path& dbPath, ID3D11Device* /*pDevice*/, ID3D11DeviceContext* /*pContext*/) {
+    LOG_WARN("DX7 prop cache save not implemented; skipping {}", dbPath.string());
+    return false;
 }

@@ -20,7 +20,6 @@
  */
 // ReSharper disable CppDFAUnreachableCode
 #include <ddraw.h>
-#include <d3d11.h>
 #include <cache/LotCacheManager.h>
 
 #include "cGZPersistResourceKey.h"
@@ -38,6 +37,7 @@
 #include "../exemplar/IconResourceUtil.h"
 #include "../exemplar/PropertyUtil.h"
 #include "../gfx/IconLoader.h"
+#include "../gfx/DX7ImageLoader.h"
 #include "../gfx/TextureToPNG.h"
 #include "../s3d/S3DThumbnailGeneratorDX7.h"
 #include "../utils/Logger.h"
@@ -49,7 +49,8 @@ LotCacheManager::LotCacheManager()
       currentLotSizeIndex(0),
       processedLotCount(0),
       totalLotCount(0),
-      pCityForIncremental(nullptr) {
+      pCityForIncremental(nullptr),
+      pImGuiService(nullptr) {
 }
 
 LotCacheManager::~LotCacheManager() {
@@ -57,14 +58,32 @@ LotCacheManager::~LotCacheManager() {
 }
 
 void LotCacheManager::Clear() {
-    // Release all icon SRVs (PNG or S3D)
+    // Release all icon textures (PNG or S3D)
     for (auto& kv : lotConfigCache) {
         auto& entry = kv.second;
-        if (entry.iconSurface) {
-            entry.iconSurface->Release();
-            entry.iconSurface = nullptr;
+        if (entry.iconHandle.id != 0 && pImGuiService) {
+            pImGuiService->ReleaseTexture(entry.iconHandle);
         }
+        entry.iconHandle = {0, 0};
         entry.iconType = LotConfigEntry::IconType::None;
+        entry.iconWidth = 0;
+        entry.iconHeight = 0;
+    }
+
+    lotConfigCache.clear();
+    exemplarCache.clear();
+    cacheInitialized = false;
+}
+
+void LotCacheManager::ClearWithoutRelease() {
+    // Clear all cached data WITHOUT releasing textures
+    // Use this during device resets when the ImGui service is invalid or being reset
+    for (auto& kv : lotConfigCache) {
+        auto& entry = kv.second;
+        entry.iconHandle = {0, 0};
+        entry.iconType = LotConfigEntry::IconType::None;
+        entry.iconWidth = 0;
+        entry.iconHeight = 0;
     }
 
     lotConfigCache.clear();
@@ -74,6 +93,8 @@ void LotCacheManager::Clear() {
 
 void LotCacheManager::BuildCache(cISC4City* pCity, cIGZPersistResourceManager* pRM, cIGZImGuiService* pImGuiService, LotCacheProgressCallback progressCallback) {
     if (cacheInitialized) return;
+
+    SetImGuiService(pImGuiService);
 
     LOG_INFO("Building lot cache...");
     BuildExemplarCache(pRM, progressCallback);
@@ -130,6 +151,8 @@ void LotCacheManager::BuildExemplarCache(cIGZPersistResourceManager* pRM, LotCac
 
 void LotCacheManager::BuildLotConfigCache(cISC4City* pCity, cIGZPersistResourceManager* pRM, cIGZImGuiService* pImGuiService, LotCacheProgressCallback progressCallback) {
     LOG_INFO("Building lot configuration cache...");
+
+    SetImGuiService(pImGuiService);
 
     if (progressCallback) {
         progressCallback("Processing lot configurations...", 0, 16 * 16);
@@ -202,10 +225,10 @@ void LotCacheManager::BuildLotConfigCache(cISC4City* pCity, cIGZPersistResourceM
                                     entry.iconInstance = iconInstance;
 
                                     if (pImGuiService) {
-                                        IDirectDrawSurface7* surface = nullptr;
+                                        ImGuiTextureHandle handle{};
                                         int w = 0, h = 0;
-                                        if (IconLoader::LoadIconFromPNG(pRM, iconInstance, pImGuiService, &surface, &w, &h)) {
-                                            entry.iconSurface = surface;
+                                        if (IconLoader::LoadIconFromPNG(pRM, iconInstance, pImGuiService, &handle, &w, &h)) {
+                                            entry.iconHandle = handle;
                                             entry.iconWidth = w;
                                             entry.iconHeight = h;
                                             entry.iconType = LotConfigEntry::IconType::PNG;
@@ -225,10 +248,23 @@ void LotCacheManager::BuildLotConfigCache(cISC4City* pCity, cIGZPersistResourceM
                                                 5,
                                                 0);
                                         if (surface) {
-                                            entry.iconSurface = surface;
-                                            entry.iconWidth = kThumbnailSize;
-                                            entry.iconHeight = kThumbnailSize;
-                                            entry.iconType = LotConfigEntry::IconType::S3D;
+                                            std::vector<uint8_t> rgba;
+                                            if (gfx::SurfaceToRGBA(surface, kThumbnailSize, kThumbnailSize, rgba)) {
+                                                ImGuiTextureDesc desc{};
+                                                desc.width = static_cast<uint32_t>(kThumbnailSize);
+                                                desc.height = static_cast<uint32_t>(kThumbnailSize);
+                                                desc.pixels = rgba.data();
+                                                desc.useSystemMemory = false;
+
+                                                ImGuiTextureHandle handle = pImGuiService->CreateTexture(desc);
+                                                if (handle.id != 0) {
+                                                    entry.iconHandle = handle;
+                                                    entry.iconWidth = kThumbnailSize;
+                                                    entry.iconHeight = kThumbnailSize;
+                                                    entry.iconType = LotConfigEntry::IconType::S3D;
+                                                }
+                                            }
+                                            surface->Release();
                                         }
                                     }
                                 }
@@ -381,6 +417,10 @@ void LotCacheManager::BeginLotConfigProcessing(cISC4City* pCity) {
 int LotCacheManager::ProcessLotConfigBatch(cIGZPersistResourceManager* pRM, cIGZImGuiService* pImGuiService, int maxLotsToProcess) {
     if (!pCityForIncremental || !pRM) return 0;
 
+    if (pImGuiService) {
+        SetImGuiService(pImGuiService);
+    }
+
     cISC4LotConfigurationManager* pLotConfigMgr = pCityForIncremental->GetLotConfigurationManager();
     if (!pLotConfigMgr) return 0;
 
@@ -449,10 +489,10 @@ int LotCacheManager::ProcessLotConfigBatch(cIGZPersistResourceManager* pRM, cIGZ
                                 entry.iconInstance = iconInstance;
 
                                 if (pImGuiService) {
-                                    IDirectDrawSurface7* surface = nullptr;
+                                    ImGuiTextureHandle handle{};
                                     int w = 0, h = 0;
-                                    if (IconLoader::LoadIconFromPNG(pRM, iconInstance, pImGuiService, &surface, &w, &h)) {
-                                        entry.iconSurface = surface;
+                                    if (IconLoader::LoadIconFromPNG(pRM, iconInstance, pImGuiService, &handle, &w, &h)) {
+                                        entry.iconHandle = handle;
                                         entry.iconWidth = w;
                                         entry.iconHeight = h;
                                         entry.iconType = LotConfigEntry::IconType::PNG;
@@ -472,10 +512,23 @@ int LotCacheManager::ProcessLotConfigBatch(cIGZPersistResourceManager* pRM, cIGZ
                                             5,
                                             0);
                                     if (surface) {
-                                        entry.iconSurface = surface;
-                                        entry.iconWidth = kThumbnailSize;
-                                        entry.iconHeight = kThumbnailSize;
-                                        entry.iconType = LotConfigEntry::IconType::S3D;
+                                        std::vector<uint8_t> rgba;
+                                        if (gfx::SurfaceToRGBA(surface, kThumbnailSize, kThumbnailSize, rgba)) {
+                                            ImGuiTextureDesc desc{};
+                                            desc.width = static_cast<uint32_t>(kThumbnailSize);
+                                            desc.height = static_cast<uint32_t>(kThumbnailSize);
+                                            desc.pixels = rgba.data();
+                                            desc.useSystemMemory = false;
+
+                                            ImGuiTextureHandle handle = pImGuiService->CreateTexture(desc);
+                                            if (handle.id != 0) {
+                                                entry.iconHandle = handle;
+                                                entry.iconWidth = kThumbnailSize;
+                                                entry.iconHeight = kThumbnailSize;
+                                                entry.iconType = LotConfigEntry::IconType::S3D;
+                                            }
+                                        }
+                                        surface->Release();
                                     }
                                 }
                             }

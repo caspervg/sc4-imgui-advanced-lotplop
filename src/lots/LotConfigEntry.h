@@ -2,9 +2,7 @@
 #include <cstdint>
 #include <string>
 #include <unordered_set>
-
-// Forward declare DirectDraw surface to avoid including ddraw.h here.
-struct IDirectDrawSurface7;
+#include "public/cIGZImGuiService.h"
 
 struct LotConfigEntry {
     // Icon type enumeration
@@ -30,9 +28,9 @@ struct LotConfigEntry {
     // Item Icon instance (PNG resource instance id) saved during cache build
     uint32_t iconInstance = 0;
 
-    // Unified icon/thumbnail surface (either PNG icon or S3D thumbnail, never both)
-    // Surface owned by the cache manager; UI only reads it.
-    IDirectDrawSurface7* iconSurface = nullptr;
+    // Unified icon/thumbnail texture (either PNG icon or S3D thumbnail)
+    // Texture lifetime is managed by the ImGui service.
+    ImGuiTextureHandle iconHandle{0, 0};
     IconType iconType = IconType::None;
 
     // Dimensions - interpretation depends on iconType:
@@ -45,3 +43,4 @@ struct LotConfigEntry {
     bool iconRequested = false;
     bool descriptionLoaded = false;
 };
+

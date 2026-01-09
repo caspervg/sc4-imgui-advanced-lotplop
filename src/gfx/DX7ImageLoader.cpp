@@ -4,6 +4,8 @@
 #include <wincodec.h>
 #include <wil/com.h>
 #include <cstdint>
+#include <vector>
+#include "utils/Logger.h"
 
 namespace gfx {
 namespace {
@@ -37,6 +39,10 @@ namespace {
         UINT w = 0, h = 0;
         if (FAILED(frame->GetSize(&w, &h)))
             return false;
+        if (w == 0 || h == 0) {
+            LOG_WARN("DecodePNGWithWIC: invalid size ({}x{})", w, h);
+            return false;
+        }
 
         wil::com_ptr<IWICFormatConverter> converter;
         if (FAILED(factory->CreateFormatConverter(&converter)))
@@ -47,8 +53,20 @@ namespace {
                                          WICBitmapPaletteTypeCustom)))
             return false;
 
+        if (w > (SIZE_MAX / 4)) {
+            LOG_WARN("DecodePNGWithWIC: width too large ({}), would overflow stride", w);
+            return false;
+        }
         size_t stride = static_cast<size_t>(w) * 4;
+        if (h > (SIZE_MAX / stride)) {
+            LOG_WARN("DecodePNGWithWIC: height too large ({}), would overflow buffer", h);
+            return false;
+        }
         size_t bufSize = stride * static_cast<size_t>(h);
+        if (stride > UINT_MAX || bufSize > UINT_MAX) {
+            LOG_WARN("DecodePNGWithWIC: buffer too large for WIC (stride={}, size={})", stride, bufSize);
+            return false;
+        }
         auto* pixels = static_cast<uint8_t*>(malloc(bufSize));
         if (!pixels)
             return false;
@@ -196,6 +214,72 @@ bool CreateSurfaceFromRGBA(const uint8_t* rgba,
 
     surface->Unlock(nullptr);
     *out_surface = surface;
+    return true;
+}
+
+bool DecodePNGToRGBA(const void* data,
+                     size_t size,
+                     std::vector<uint8_t>& out_rgba,
+                     int* out_width,
+                     int* out_height)
+{
+    out_rgba.clear();
+    if (out_width) *out_width = 0;
+    if (out_height) *out_height = 0;
+
+    uint8_t* rgba = nullptr;
+    UINT w = 0, h = 0;
+    if (!DecodePNGWithWIC(data, size, &rgba, &w, &h)) {
+        return false;
+    }
+
+    if (w > (SIZE_MAX / 4) || h > (SIZE_MAX / (static_cast<size_t>(w) * 4))) {
+        LOG_WARN("DecodePNGToRGBA: size overflow ({}x{})", w, h);
+        free(rgba);
+        return false;
+    }
+    const size_t totalBytes = static_cast<size_t>(w) * static_cast<size_t>(h) * 4;
+    out_rgba.assign(rgba, rgba + totalBytes);
+    free(rgba);
+
+    if (out_width) *out_width = static_cast<int>(w);
+    if (out_height) *out_height = static_cast<int>(h);
+    return true;
+}
+
+bool SurfaceToRGBA(IDirectDrawSurface7* surface,
+                   int width,
+                   int height,
+                   std::vector<uint8_t>& out_rgba)
+{
+    out_rgba.clear();
+    if (!surface || width <= 0 || height <= 0) {
+        return false;
+    }
+
+    DDSURFACEDESC2 desc{};
+    desc.dwSize = sizeof(desc);
+    if (FAILED(surface->Lock(nullptr, &desc, DDLOCK_READONLY, nullptr))) {
+        return false;
+    }
+
+    const size_t totalBytes = static_cast<size_t>(width) * static_cast<size_t>(height) * 4;
+    out_rgba.resize(totalBytes);
+
+    for (int y = 0; y < height; ++y) {
+        const auto* srcRow = reinterpret_cast<const uint8_t*>(desc.lpSurface) + y * desc.lPitch;
+        const auto* src = reinterpret_cast<const uint32_t*>(srcRow);
+        for (int x = 0; x < width; ++x) {
+            const uint32_t c = src[x];
+            const size_t dstIdx = (static_cast<size_t>(y) * static_cast<size_t>(width) + static_cast<size_t>(x)) * 4;
+            out_rgba[dstIdx + 0] = static_cast<uint8_t>((c >> 16) & 0xFF); // R
+            out_rgba[dstIdx + 1] = static_cast<uint8_t>((c >> 8) & 0xFF);  // G
+            out_rgba[dstIdx + 2] = static_cast<uint8_t>(c & 0xFF);         // B
+            out_rgba[dstIdx + 3] = static_cast<uint8_t>((c >> 24) & 0xFF); // A
+        }
+    }
+
+    surface->Unlock(nullptr);
     return true;
 }
 

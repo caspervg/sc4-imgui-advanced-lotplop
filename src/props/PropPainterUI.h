@@ -2,11 +2,11 @@
 #include <cstdint>
 #include <functional>
 #include <string>
-
 #include "../cache/PropCacheManager.h"
 
 class PropPainterInputControl;
 class cISC43DRender;
+class cIGZImGuiService;
 
 /**
  * @brief Callbacks for prop painter UI events
@@ -39,6 +39,11 @@ public:
      * @brief Set the prop cache manager
      */
     void SetPropCacheManager(PropCacheManager* manager) { pCacheManager = manager; }
+
+    /**
+     * @brief Inject ImGui service for texture lookups
+     */
+    void SetImGuiService(cIGZImGuiService* service) { pImGuiService = service; }
 
     /**
      * @brief Set UI event callbacks
@@ -106,6 +111,7 @@ private:
     PropCacheManager* pCacheManager;
     PropPainterInputControl* pInputControl;
     cISC43DRender* pRenderer;
+    cIGZImGuiService* pImGuiService;
     PropPainterUICallbacks callbacks;
 
     // Loading state
@@ -122,3 +128,4 @@ private:
     int thumbnailSize;
     float gridSpacing;
 };
+

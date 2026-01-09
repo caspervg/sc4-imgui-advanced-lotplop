@@ -66,14 +66,20 @@ public:
     bool LoadFromDatabase(const std::filesystem::path& dbPath, ID3D11Device* pDevice, ID3D11DeviceContext* pContext);
     bool SaveToDatabase(const std::filesystem::path& dbPath, ID3D11Device* pDevice, ID3D11DeviceContext* pContext);
 
-    // Clear all cached data
+    // Clear all cached data (releases textures via ImGui service)
     void Clear();
+
+    // Clear cache WITHOUT releasing textures (for use during device resets where ImGui service is invalid)
+    void ClearWithoutRelease();
 
     // Check if cache is ready
     bool IsInitialized() const { return cacheInitialized; }
 
     // Access the cache
     const std::unordered_map<uint32_t, LotConfigEntry>& GetLotConfigCache() const { return lotConfigCache; }
+
+    // Set/refresh the ImGui service pointer (non-owning)
+    void SetImGuiService(cIGZImGuiService* service) { pImGuiService = service; }
 
 private:
     // Build exemplar cache
@@ -103,4 +109,5 @@ private:
     int processedLotCount;
     int totalLotCount;
     cISC4City* pCityForIncremental;
+    cIGZImGuiService* pImGuiService = nullptr;
 };

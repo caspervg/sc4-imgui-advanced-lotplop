@@ -225,6 +225,11 @@ public:
                 GZIID_cIGZImGuiService,
                 reinterpret_cast<void**>(&imGuiService))) {
                 lotCacheBuildOrchestrator.SetImGuiService(imGuiService);
+                lotCacheManager.SetImGuiService(imGuiService);
+                mLotPlopUI.SetImGuiService(imGuiService);
+                propCacheBuildOrchestrator.SetImGuiService(imGuiService);
+                propCacheManager.SetImGuiService(imGuiService);
+                mPropPaintUI.SetImGuiService(imGuiService);
                 if (!imGuiService->GetContext()) {
                     LOG_WARN("ImGui service context not ready yet");
                 }
@@ -264,6 +269,11 @@ public:
 
     bool PostAppShutdown() override {
         if (imGuiService) {
+            lotCacheManager.SetImGuiService(nullptr);
+            propCacheManager.SetImGuiService(nullptr);
+            mLotPlopUI.SetImGuiService(nullptr);
+            mPropPaintUI.SetImGuiService(nullptr);
+
             if (propPainterPanelRegistered) {
                 imGuiService->UnregisterPanel(kPropPainterPanelId);
             }
@@ -350,6 +360,8 @@ public:
     void Update() {
         // Update lot cache build if in progress
         if (lotCacheBuildOrchestrator.IsBuilding()) {
+            // Don't hide the UI while building - let the user see the loading progress
+            // Just update the cache build state
             bool stillBuilding = lotCacheBuildOrchestrator.Update();
 
             // If build just completed, refresh the lot list
@@ -360,6 +372,7 @@ public:
 
         // Update prop cache build if in progress
         if (propCacheBuildOrchestrator.IsBuilding()) {
+            // Don't hide the UI while building
             propCacheBuildOrchestrator.Update();
         }
     }
@@ -383,8 +396,8 @@ public:
                 if (propCacheBuildOrchestrator.IsBuilding()) {
                     propCacheBuildOrchestrator.Cancel();
                 }
-                lotCacheManager.Clear();
-                propCacheManager.Clear();
+                lotCacheManager.ClearWithoutRelease();
+                propCacheManager.ClearWithoutRelease();
                 lotEntries.clear();
                 if (bool* showLot = mLotPlopUI.GetShowWindowPtr()) {
                     *showLot = false;
@@ -393,7 +406,9 @@ public:
                     *showProp = false;
                 }
                 if (mPropPaintUI.IsPaintingActive()) {
-                    propPainterControlManager.StopPainting(pView3D);
+                    if (pView3D) {
+                        propPainterControlManager.StopPainting(pView3D);
+                    }
                 }
                 mPropPaintUI.ResetPreviewState();
                 isShuttingDown = false;
@@ -405,12 +420,17 @@ public:
 
     void RenderLotPlopUI() override {
         if (isShuttingDown) {
+            LOG_DEBUG("RenderLotPlopUI: Skipping, shutting down");
             return;
         }
         bool *pShow = mLotPlopUI.GetShowWindowPtr();
+        LOG_DEBUG("RenderLotPlopUI: pShow={}, *pShow={}", (void*)pShow, pShow ? *pShow : -1);
         if (pShow && *pShow) {
+            LOG_DEBUG("RenderLotPlopUI: Rendering UI");
             // Delegate to UI class
             mLotPlopUI.Render();
+        } else {
+            LOG_DEBUG("RenderLotPlopUI: Window not visible");
         }
     }
 
@@ -493,7 +513,12 @@ private:
     void RefreshLotList() {
         if (!lotCacheManager.IsInitialized()) {
             BuildCache();
-            return; // Defer filtering until the cache is ready
+            return;
+        }
+
+        if (lotCacheBuildOrchestrator.IsBuilding()) {
+            LOG_DEBUG("RefreshLotList: skipping while cache is building");
+            return;
         }
 
         LOG_DEBUG("RefreshLotList: cache has {} lots", lotCacheManager.GetLotConfigCache().size());
@@ -510,10 +535,14 @@ private:
             mLotPlopUI.GetSelectedOccupantGroups()
         );
 
+        // Update the UI with the filtered lot list
+        mLotPlopUI.SetLotEntries(&lotEntries);
+
         LOG_DEBUG("RefreshLotList: filtered to {} lots", lotEntries.size());
     }
 
     void ToggleWindow() {
+        if (!pView3D) return;
     	pView3D->RemoveAllViewInputControls(false);
         bool *pShow = mLotPlopUI.GetShowWindowPtr();
         *pShow = !*pShow;

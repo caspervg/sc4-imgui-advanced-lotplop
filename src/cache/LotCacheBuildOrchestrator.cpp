@@ -42,6 +42,8 @@ LotCacheBuildOrchestrator::LotCacheBuildOrchestrator(
 
 void LotCacheBuildOrchestrator::SetImGuiService(cIGZImGuiService* pImGuiService) {
     this->pImGuiService = pImGuiService;
+    cacheManager.SetImGuiService(pImGuiService);
+    ui.SetImGuiService(pImGuiService);
 }
 
 bool LotCacheBuildOrchestrator::StartBuildCache(cISC4City* pCity) {
@@ -126,7 +128,6 @@ bool LotCacheBuildOrchestrator::Update() {
             isBuilding = false;
             phase = Phase::NotStarted;
             pCity = nullptr;
-            pImGuiService = nullptr;
 
             return false; // Done
         }
@@ -150,5 +151,4 @@ void LotCacheBuildOrchestrator::Cancel() {
     isBuilding = false;
     phase = Phase::NotStarted;
     pCity = nullptr;
-    pImGuiService = nullptr;
 }

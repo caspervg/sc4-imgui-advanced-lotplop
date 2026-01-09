@@ -7,6 +7,7 @@
 #include "LotConfigTableEntry.h"
 #include "../utils/Config.h"
 #include "imgui.h"
+#include "public/cIGZImGuiService.h"
 #include "utils/Logger.h"
 
 AdvancedLotPlopUI::AdvancedLotPlopUI()
@@ -27,23 +28,20 @@ void AdvancedLotPlopUI::SetCity(cISC4City* city)
 
 void AdvancedLotPlopUI::SetLotEntries(const std::vector<LotConfigEntry>* entries)
 {
-	lotEntries = entries;
-	// Rebuild MRU list with fresh copies from new entries (drop stale ones)
-	if (lotEntries)
-	{
-		std::vector<LotConfigEntry> refreshed;
-		refreshed.reserve(mruOrdered.size());
-		for (const auto& old : mruOrdered)
-		{
-			auto it = std::find_if(lotEntries->begin(), lotEntries->end(), [&old](const LotConfigEntry& e){ return e.id == old.id; });
-			if (it != lotEntries->end()) refreshed.push_back(*it);
-		}
-		mruOrdered.swap(refreshed);
+	if (entries) {
+		lotEntriesSnapshot = *entries;
+	} else {
+		lotEntriesSnapshot.clear();
 	}
-	else
+
+	std::vector<LotConfigEntry> refreshed;
+	refreshed.reserve(mruOrdered.size());
+	for (const auto& old : mruOrdered)
 	{
-		mruOrdered.clear();
+		auto it = std::find_if(lotEntriesSnapshot.begin(), lotEntriesSnapshot.end(), [&old](const LotConfigEntry& e){ return e.id == old.id; });
+		if (it != lotEntriesSnapshot.end()) refreshed.push_back(*it);
 	}
+	mruOrdered.swap(refreshed);
 }
 
 bool* AdvancedLotPlopUI::GetShowWindowPtr()
@@ -133,11 +131,16 @@ void AdvancedLotPlopUI::Render()
 {
 	// Always render a loading window if needed
 	RenderLoadingWindow();
-	if (!showWindow) return;
+	if (!showWindow) {
+		LOG_DEBUG("AdvancedLotPlopUI::Render: showWindow is false");
+		return;
+	}
 
+	LOG_DEBUG("AdvancedLotPlopUI::Render: Starting render, ImGui context={}", (void*)ImGui::GetCurrentContext());
 	ImGui::SetNextWindowSize(ImVec2(700, 600), ImGuiCond_FirstUseEver);
 	if (ImGui::Begin("Advanced LotPlop", &showWindow))
 	{
+		LOG_DEBUG("AdvancedLotPlopUI::Render: ImGui::Begin succeeded");
 		if (ImGui::BeginTabBar("LotViewTabs", ImGuiTabBarFlags_Reorderable))
 		{
 			if (ImGui::BeginTabItem("All"))
@@ -376,7 +379,7 @@ void AdvancedLotPlopUI::RenderOccupantGroupFilter()
 
 void AdvancedLotPlopUI::RenderLotList()
 {
-	size_t count = lotEntries ? lotEntries->size() : 0;
+	size_t count = lotEntriesSnapshot.size();
 	ImGui::Text("Lot Configurations (%zu found)", count);
 
 	if (ImGui::BeginTable("LotTable", 5,
@@ -396,23 +399,23 @@ void AdvancedLotPlopUI::RenderLotList()
 		ImGui::TableHeadersRow();
 
 		// Determine sort order
-		static std::vector<int> indices; // indices into lotEntries
+		static std::vector<int> indices; // indices into lotEntriesSnapshot
 		indices.clear();
-		if (lotEntries)
+		if (!lotEntriesSnapshot.empty())
 		{
 			// Build filtered index first honoring favoritesOnly
 			std::vector<int> filtered;
-			filtered.reserve(lotEntries->size());
-			for (size_t i = 0; i < lotEntries->size(); ++i)
+			filtered.reserve(lotEntriesSnapshot.size());
+			for (size_t i = 0; i < lotEntriesSnapshot.size(); ++i)
 			{
-				const auto& e = (*lotEntries)[i];
+				const auto& e = lotEntriesSnapshot[i];
 				if (favoritesOnly && !IsFavorite(e.id)) continue;
 				filtered.push_back((int)i);
 			}
 			// Sort the filtered indices using existing helper by creating temp vector of entries
 			std::vector<LotConfigEntry> temp;
 			temp.reserve(filtered.size());
-			for (int idx : filtered) temp.push_back((*lotEntries)[(size_t)idx]);
+			for (int idx : filtered) temp.push_back(lotEntriesSnapshot[(size_t)idx]);
 			std::vector<int> sortOrder = LotConfigTable::BuildSortedIndex(temp, favoritesSet, ImGui::TableGetSortSpecs());
 			indices.clear();
 			indices.reserve(sortOrder.size());
@@ -425,7 +428,7 @@ void AdvancedLotPlopUI::RenderLotList()
 				for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; ++row)
 				{
 					int idx = indices.empty() ? row : indices[(size_t)row];
-					const auto& entry = (*lotEntries)[(size_t)idx];
+					const auto& entry = lotEntriesSnapshot[(size_t)idx];
 					ImGui::TableNextRow();
 
 					// Ensure unique ImGui ID scope per row to avoid ID collisions when labels repeat
@@ -479,45 +482,51 @@ void AdvancedLotPlopUI::RenderLotList()
 
 void AdvancedLotPlopUI::RenderIconForEntry(const LotConfigEntry& entry)
 {
-        if (!entry.iconSurface || entry.iconType == LotConfigEntry::IconType::None)
+        if (!pImGuiService || entry.iconType == LotConfigEntry::IconType::None)
         {
                 // No icon available - show placeholder
                 ImGui::Dummy(ImVec2(44, 44));
                 return;
-	}
+        }
 
-	switch (entry.iconType)
-	{
-	case LotConfigEntry::IconType::PNG:
-		{
-			// Lot PNG icons are 176x44 made of four 44x44 states; show the second 44x44 (enabled) [pixels 44..88]
-			float u1 = (entry.iconWidth > 0) ? (44.0f / (float)entry.iconWidth) : 0.0f;
-			float v1 = 0.0f;
-			float u2 = (entry.iconWidth > 0) ? (88.0f / (float)entry.iconWidth) : 0.0f;
-			float v2 = (entry.iconHeight > 0) ? (44.0f / (float)entry.iconHeight) : 0.0f;
-                        ImGui::Image((ImTextureID)entry.iconSurface, ImVec2(44, 44), ImVec2(u1, v1), ImVec2(u2, v2));
-		}
-		break;
+        void* texId = pImGuiService->GetTextureID(entry.iconHandle);
+        if (!texId) {
+                ImGui::Dummy(ImVec2(44, 44));
+                return;
+        }
 
-	case LotConfigEntry::IconType::S3D:
-		{
+        switch (entry.iconType)
+        {
+        case LotConfigEntry::IconType::PNG:
+                {
+                        // Lot PNG icons are 176x44 made of four 44x44 states; show the second 44x44 (enabled) [pixels 44..88]
+                        float u1 = (entry.iconWidth > 0) ? (44.0f / (float)entry.iconWidth) : 0.0f;
+                        float v1 = 0.0f;
+                        float u2 = (entry.iconWidth > 0) ? (88.0f / (float)entry.iconWidth) : 0.0f;
+                        float v2 = (entry.iconHeight > 0) ? (44.0f / (float)entry.iconHeight) : 0.0f;
+                        ImGui::Image(texId, ImVec2(44, 44), ImVec2(u1, v1), ImVec2(u2, v2));
+                }
+                break;
+
+        case LotConfigEntry::IconType::S3D:
+                {
 			// S3D thumbnail - display full square texture
 			// Center it in the 44x44 space if thumbnail is smaller
 			float displaySize = 44.0f;
 			ImVec2 cursorPos = ImGui::GetCursorPos();
 
-			if (entry.iconWidth < 44) {
-				float offset = (44.0f - entry.iconWidth) / 2.0f;
-				ImGui::SetCursorPos(ImVec2(cursorPos.x + offset, cursorPos.y + offset));
-				displaySize = (float)entry.iconWidth;
-			}
+                        if (entry.iconWidth < 44) {
+                                float offset = (44.0f - entry.iconWidth) / 2.0f;
+                                ImGui::SetCursorPos(ImVec2(cursorPos.x + offset, cursorPos.y + offset));
+                                displaySize = (float)entry.iconWidth;
+                        }
 
-                        ImGui::Image((ImTextureID)entry.iconSurface, ImVec2(displaySize, displaySize));
+                        ImGui::Image(texId, ImVec2(displaySize, displaySize));
 
-			// Reset cursor if we offset it
-			if (entry.iconWidth < 44) {
-				ImGui::SetCursorPos(ImVec2(cursorPos.x, cursorPos.y + 44.0f));
-			}
+                        // Reset cursor if we offset it
+                        if (entry.iconWidth < 44) {
+                                ImGui::SetCursorPos(ImVec2(cursorPos.x, cursorPos.y + 44.0f));
+                        }
 		}
 		break;
 
@@ -536,12 +545,12 @@ void AdvancedLotPlopUI::RenderDetails()
 		return;
 	}
 
-	if (!lotEntries) return;
+	if (lotEntriesSnapshot.empty()) return;
 
-	auto it = std::find_if(lotEntries->begin(), lotEntries->end(),
+	auto it = std::find_if(lotEntriesSnapshot.begin(), lotEntriesSnapshot.end(),
 	                       [this](const LotConfigEntry& e) { return e.id == selectedLotIID; });
 
-	if (it != lotEntries->end())
+	if (it != lotEntriesSnapshot.end())
 	{
 		ImGui::Text("Selected Lot: %s", it->name.c_str());
 		ImGui::Text("ID: 0x%08X", it->id);
@@ -630,9 +639,9 @@ void AdvancedLotPlopUI::ToggleFavorite(uint32_t lotID)
 
 void AdvancedLotPlopUI::RegisterPlop(uint32_t lotID)
 {
-	if (!lotEntries) return;
-	auto srcIt = std::find_if(lotEntries->begin(), lotEntries->end(), [lotID](const LotConfigEntry& e){ return e.id == lotID; });
-	if (srcIt == lotEntries->end())
+	if (lotEntriesSnapshot.empty()) return;
+	auto srcIt = std::find_if(lotEntriesSnapshot.begin(), lotEntriesSnapshot.end(), [lotID](const LotConfigEntry& e){ return e.id == lotID; });
+	if (srcIt == lotEntriesSnapshot.end())
 	{
 		LOG_DEBUG("Register plop skipped, lot 0x{:x} not found in entries", lotID);
 		return;

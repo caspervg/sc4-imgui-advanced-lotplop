@@ -1,11 +1,11 @@
 #include "PropPainterUI.h"
-
 #include <cstring>
-
+#include <cstdio>
 #include "cISC43DRender.h"
 #include "imgui.h"
 #include "PropPainterInputControl.h"
 #include "../utils/CoordinateConverter.h"
+#include "public/cIGZImGuiService.h"
 #include "../utils/Logger.h"
 
 PropPainterUI::PropPainterUI()
@@ -15,6 +15,7 @@ PropPainterUI::PropPainterUI()
     , pCacheManager(nullptr)
     , pInputControl(nullptr)
     , pRenderer(nullptr)
+    , pImGuiService(nullptr)
     , loadingCurrent(0)
     , loadingTotal(0)
     , selectedPropID(0)
@@ -144,16 +145,19 @@ void PropPainterUI::RenderToolbar() {
 }
 
 void PropPainterUI::RenderPropPreview() {
-    ImGui::Dummy(ImVec2(64, 64));
-    return;
-
     if (selectedPropID == 0 || !pCacheManager) {
         ImGui::TextWrapped("No prop selected");
         return;
     }
 
     const PropCacheEntry* entry = pCacheManager->GetPropByID(selectedPropID);
-    if (!entry || !entry->iconSRV) {
+    if (!entry || !pImGuiService || entry->iconType == PropCacheEntry::IconType::None) {
+        ImGui::TextWrapped("No preview available");
+        return;
+    }
+
+    void* texId = pImGuiService->GetTextureID(entry->iconHandle);
+    if (!texId) {
         ImGui::TextWrapped("No preview available");
         return;
     }
@@ -166,7 +170,7 @@ void PropPainterUI::RenderPropPreview() {
     float offset = (availWidth - previewSize) / 2.0f;
     ImGui::SetCursorPos(ImVec2(cursorPos.x + offset, cursorPos.y));
 
-    ImGui::Image(entry->iconSRV, ImVec2(previewSize, previewSize));
+    ImGui::Image(texId, ImVec2(previewSize, previewSize));
 }
 
 void PropPainterUI::RenderPropBrowser() {
@@ -226,23 +230,29 @@ void PropPainterUI::RenderPropBrowser() {
 
                 // Icon column
                 ImGui::TableSetColumnIndex(0);
-                ImGui::Dummy(ImVec2(44, 44));
-                const bool useImageRendering = false;
-                if (useImageRendering) {
-                if (prop.iconSRV) {
-                    float displaySize = 44.0f;
-                    ImVec2 cursorPos = ImGui::GetCursorPos();
+                bool drawn = false;
+                if (pImGuiService && prop.iconType != PropCacheEntry::IconType::None) {
+                    void* texId = pImGuiService->GetTextureID(prop.iconHandle);
+                    if (texId) {
+                        float displaySize = 44.0f;
+                        ImVec2 cursorPos = ImGui::GetCursorPos();
 
-                    if (prop.iconWidth < 44) {
-                        float offset = (44.0f - prop.iconWidth) / 2.0f;
-                        ImGui::SetCursorPos(ImVec2(cursorPos.x + offset, cursorPos.y + offset));
-                        displaySize = static_cast<float>(prop.iconWidth);
+                        if (prop.iconWidth < 44) {
+                            float offset = (44.0f - prop.iconWidth) / 2.0f;
+                            ImGui::SetCursorPos(ImVec2(cursorPos.x + offset, cursorPos.y + offset));
+                            displaySize = static_cast<float>(prop.iconWidth);
+                        }
+
+                        ImGui::Image(texId, ImVec2(displaySize, displaySize));
+
+                        if (prop.iconWidth < 44) {
+                            ImGui::SetCursorPos(ImVec2(cursorPos.x, cursorPos.y + 44.0f));
+                        }
+                        drawn = true;
                     }
-
-                    ImGui::Image(prop.iconSRV, ImVec2(displaySize, displaySize));
-                } else {
-                    ImGui::Dummy(ImVec2(44, 44));
                 }
+                if (!drawn) {
+                    ImGui::Dummy(ImVec2(44, 44));
                 }
 
                 // Name column
@@ -278,7 +288,7 @@ void PropPainterUI::RenderPaintingControls() {
     ImGui::Separator();
 
     // Rotation selector
-    const char* rotationNames[] = { "South (0°)", "East (90°)", "North (180°)", "West (270°)" };
+    const char* rotationNames[] = { "South (0Â°)", "East (90Â°)", "North (180Â°)", "West (270Â°)" };
     ImGui::Text("Rotation:");
     ImGui::SetNextItemWidth(-1);
     if (ImGui::Combo("##Rotation", &selectedRotation, rotationNames, 4)) {
@@ -303,10 +313,6 @@ void PropPainterUI::RenderPaintingControls() {
             LOG_INFO("Started painting mode for prop 0x{:08X}", selectedPropID);
         }
         ImGui::EndDisabled();
-
-        // if (selectedPropID == 0) {
-        //     ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "Select a prop to begin");
-        // }
     } else {
         if (ImGui::Button("Stop Painting", ImVec2(-1, 50))) {
             paintingActive = false;
@@ -315,10 +321,6 @@ void PropPainterUI::RenderPaintingControls() {
             }
             LOG_INFO("Stopped painting mode");
         }
-
-        // ImGui::Spacing();
-        // ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "● Painting Active");
-        // ImGui::TextWrapped("Click in the city to place props");
     }
 }
 

@@ -10,6 +10,7 @@
 class cISC4City;
 class cISC4PropManager;
 class cIGZPersistResourceManager;
+class cIGZImGuiService;
 struct ID3D11Device;
 struct ID3D11DeviceContext;
 
@@ -91,6 +92,11 @@ public:
     void Clear();
 
     /**
+     * @brief Clear cache WITHOUT releasing textures (for use during device resets where ImGui service is invalid)
+     */
+    void ClearWithoutRelease();
+
+    /**
      * @brief Check if the cache has been initialized
      */
     bool IsInitialized() const { return initialized; }
@@ -119,6 +125,11 @@ public:
      * @brief Get the prop manager (for family queries)
      */
     cISC4PropManager* GetPropManager() const { return pPropManager; }
+
+    /**
+     * @brief Set/refresh ImGui service for texture creation
+     */
+    void SetImGuiService(cIGZImGuiService* service) { pImGuiService = service; }
 
     /**
      * @brief Load props from persistent cache database
@@ -160,6 +171,7 @@ private:
     std::vector<uint32_t> propTypesToProcess;  // For incremental building
     cISC4PropManager* pPropManager;
     ProgressCallback progressCallback;
+    cIGZImGuiService* pImGuiService = nullptr;
 
     // Incremental build state
     int currentPropIndex = 0;

@@ -26,16 +26,20 @@
 #include "DX7ImageLoader.h"
 #include "../exemplar/IconResourceUtil.h"
 #include "public/cIGZImGuiService.h"
+#include "utils/Logger.h"
 
 bool IconLoader::LoadIconFromPNG(
     cIGZPersistResourceManager* pRM,
     uint32_t iconInstance,
     cIGZImGuiService* pImGuiService,
-    IDirectDrawSurface7** outSurface,
+    ImGuiTextureHandle* outHandle,
     int* outWidth,
     int* outHeight
 ) {
-    if (!pRM || !pImGuiService || !outSurface || iconInstance == 0) {
+    LOG_WARN("IconLoader::LoadIconFromPNG: skipping icon texture creation for instance 0x{:08X}", iconInstance);
+    return false;
+
+    if (!pRM || !pImGuiService || !outHandle || iconInstance == 0) {
         return false;
     }
 
@@ -45,31 +49,25 @@ bool IconLoader::LoadIconFromPNG(
         return false;
     }
 
-    IDirect3DDevice7* d3d = nullptr;
-    IDirectDraw7* dd = nullptr;
-    if (!pImGuiService->AcquireD3DInterfaces(&d3d, &dd)) {
+    std::vector<uint8_t> rgba;
+    int w = 0;
+    int h = 0;
+    if (!gfx::DecodePNGToRGBA(pngBytes.data(), pngBytes.size(), rgba, &w, &h)) {
         return false;
     }
 
-    IDirectDrawSurface7* surface = nullptr;
-    int w = 0, h = 0;
-    bool created = gfx::CreateSurfaceFromPNGMemory(
-        pngBytes.data(),
-        pngBytes.size(),
-        dd,
-        &surface,
-        &w,
-        &h
-    );
+    ImGuiTextureDesc desc{};
+    desc.width = static_cast<uint32_t>(w);
+    desc.height = static_cast<uint32_t>(h);
+    desc.pixels = rgba.data();
+    desc.useSystemMemory = false;
 
-    d3d->Release();
-    dd->Release();
-
-    if (!created) {
+    ImGuiTextureHandle handle = pImGuiService->CreateTexture(desc);
+    if (handle.id == 0) {
         return false;
     }
 
-    *outSurface = surface;
+    *outHandle = handle;
     if (outWidth) *outWidth = w;
     if (outHeight) *outHeight = h;
     return true;

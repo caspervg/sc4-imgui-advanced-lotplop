@@ -41,6 +41,8 @@ PropCacheBuildOrchestrator::PropCacheBuildOrchestrator(
 
 void PropCacheBuildOrchestrator::SetImGuiService(cIGZImGuiService* pImGuiService) {
     this->pImGuiService = pImGuiService;
+    cacheManager.SetImGuiService(pImGuiService);
+    ui.SetImGuiService(pImGuiService);
 }
 
 bool PropCacheBuildOrchestrator::StartBuildCache(cISC4City* pCity)
@@ -118,7 +120,6 @@ bool PropCacheBuildOrchestrator::Update() {
             isBuilding = false;
             phase = Phase::NotStarted;
             pCity = nullptr;
-            pImGuiService = nullptr;
 
             return false; // Done
         }
@@ -142,5 +143,4 @@ void PropCacheBuildOrchestrator::Cancel() {
     isBuilding = false;
     phase = Phase::NotStarted;
     pCity = nullptr;
-    pImGuiService = nullptr;
 }

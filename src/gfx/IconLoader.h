@@ -23,7 +23,7 @@
 
 class cIGZPersistResourceManager;
 class cIGZImGuiService;
-struct IDirectDrawSurface7;
+struct ImGuiTextureHandle;
 
 /**
  * Handles loading and converting PNG icons from SC4 resources to DX7 textures.
@@ -31,11 +31,11 @@ struct IDirectDrawSurface7;
 class IconLoader {
 public:
     /**
-     * Load an icon from a PNG resource instance ID and create a DirectDraw surface.
+     * Load an icon from a PNG resource instance ID and create an ImGui texture.
      * @param pRM Resource manager
      * @param iconInstance PNG instance ID
-     * @param pImGuiService ImGui service for DX7 interface access
-     * @param outSurface Output surface (caller must Release when done)
+     * @param pImGuiService ImGui service for texture creation
+     * @param outHandle Output texture handle (managed by the service)
      * @param outWidth Output icon width
      * @param outHeight Output icon height
      * @return true if successful, false otherwise
@@ -44,7 +44,7 @@ public:
         cIGZPersistResourceManager* pRM,
         uint32_t iconInstance,
         cIGZImGuiService* pImGuiService,
-        IDirectDrawSurface7** outSurface,
+        ImGuiTextureHandle* outHandle,
         int* outWidth,
         int* outHeight
     );

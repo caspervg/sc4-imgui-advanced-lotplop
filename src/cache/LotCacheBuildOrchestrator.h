@@ -21,8 +21,9 @@
 #pragma once
 
 #include "CacheBuildOrchestratorBase.h"
+#include "cISC4City.h"
+#include "cRZAutoRefCount.h"
 
-class cISC4City;
 class LotCacheManager;
 class AdvancedLotPlopUI;
 class cIGZImGuiService;
@@ -57,7 +58,7 @@ public:
      * @param pCity The city instance
      * @return true if started successfully, false otherwise
      */
-    bool StartBuildCache(cISC4City* pCity) override;
+    bool StartBuildCache(cISC4City* pCityToBuild) override;
 
     /**
      * @brief Update the cache build (call once per frame until complete)
@@ -87,7 +88,7 @@ private:
         Complete
     };
     Phase phase;
-    cISC4City* pCity;
+    cRZAutoRefCount<cISC4City> pCity;
     cIGZImGuiService* pImGuiService;
 
     static constexpr auto LOTS_PER_FRAME = 20;

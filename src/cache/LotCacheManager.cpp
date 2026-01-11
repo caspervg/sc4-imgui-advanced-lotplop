@@ -349,8 +349,7 @@ bool LotCacheManager::GetCachedExemplarByType(
 // Incremental cache building methods
 
 void LotCacheManager::BeginIncrementalBuild() {
-    exemplarCache.clear();
-    lotConfigCache.clear();
+    Clear();
     lotSizesToProcess.clear();
     currentLotSizeIndex = 0;
     processedLotCount = 0;
@@ -412,6 +411,7 @@ void LotCacheManager::BeginLotConfigProcessing(cISC4City* pCity) {
     totalLotCount = static_cast<int>(lotSizesToProcess.size());
 
     lotConfigCache.reserve(2048);
+	LOG_INFO("Begin incremental lot config processing for {} lots", totalLotCount);
 }
 
 int LotCacheManager::ProcessLotConfigBatch(cIGZPersistResourceManager* pRM, cIGZImGuiService* pImGuiService, int maxLotsToProcess) {
@@ -429,7 +429,7 @@ int LotCacheManager::ProcessLotConfigBatch(cIGZPersistResourceManager* pRM, cIGZ
 
     SC4HashSet<uint32_t> configIdTable{};
 
-    int processedThisBatch = 0;
+    auto processedThisBatch = 0;
 
     // Process lots by size, but limit to maxLotsToProcess individual lots per batch
     while (currentLotSizeIndex < lotSizesToProcess.size() && processedThisBatch < maxLotsToProcess) {
@@ -438,10 +438,13 @@ int LotCacheManager::ProcessLotConfigBatch(cIGZPersistResourceManager* pRM, cIGZ
         bool finishedThisSize = true; // Track if we finished processing all new lots in this size
 
         if (pLotConfigMgr->GetLotConfigurationIDsBySize(configIdTable, x, z)) {
+        	LOG_DEBUG("Time to loop over lots");
             for (const auto it : configIdTable) {
+            	LOG_DEBUG("Processing lot {}", it);
                 // Check if we've hit the batch limit before processing this lot
                 if (processedThisBatch >= maxLotsToProcess) {
                     finishedThisSize = false;
+                	LOG_DEBUG("Hit batch limit, stopping processing lots for this frame");
                     break;
                 }
 
@@ -482,56 +485,56 @@ int LotCacheManager::ProcessLotConfigBatch(cIGZPersistResourceManager* pRM, cIGZ
                                 entry.name += techName.Data();
                                 entry.name += ")";
                             }
-
-                            // Load icon immediately
-                            uint32_t iconInstance = 0;
-                            if (ExemplarUtil::GetItemIconInstance(pBuildingExemplar, iconInstance)) {
-                                entry.iconInstance = iconInstance;
-
-                                if (pImGuiService) {
-                                    ImGuiTextureHandle handle{};
-                                    int w = 0, h = 0;
-                                    if (IconLoader::LoadIconFromPNG(pRM, iconInstance, pImGuiService, &handle, &w, &h)) {
-                                        entry.iconHandle = handle;
-                                        entry.iconWidth = w;
-                                        entry.iconHeight = h;
-                                        entry.iconType = LotConfigEntry::IconType::PNG;
-                                    }
-                                }
-                            }
-
-                            // If no PNG icon loaded, try S3D thumbnail as fallback
-                            if (entry.iconType == LotConfigEntry::IconType::None) {
-                                if (pImGuiService) {
-                                    IDirectDrawSurface7* surface =
-                                        S3D::ThumbnailGeneratorDX7::GenerateThumbnailFromExemplar(
-                                            pBuildingExemplar,
-                                            pRM,
-                                            pImGuiService,
-                                            kThumbnailSize,
-                                            5,
-                                            0);
-                                    if (surface) {
-                                        std::vector<uint8_t> rgba;
-                                        if (gfx::SurfaceToRGBA(surface, kThumbnailSize, kThumbnailSize, rgba)) {
-                                            ImGuiTextureDesc desc{};
-                                            desc.width = static_cast<uint32_t>(kThumbnailSize);
-                                            desc.height = static_cast<uint32_t>(kThumbnailSize);
-                                            desc.pixels = rgba.data();
-                                            desc.useSystemMemory = false;
-
-                                            ImGuiTextureHandle handle = pImGuiService->CreateTexture(desc);
-                                            if (handle.id != 0) {
-                                                entry.iconHandle = handle;
-                                                entry.iconWidth = kThumbnailSize;
-                                                entry.iconHeight = kThumbnailSize;
-                                                entry.iconType = LotConfigEntry::IconType::S3D;
-                                            }
-                                        }
-                                        surface->Release();
-                                    }
-                                }
-                            }
+                            //
+                            // // Load icon immediately
+                            // uint32_t iconInstance = 0;
+                            // if (ExemplarUtil::GetItemIconInstance(pBuildingExemplar, iconInstance)) {
+                            //     entry.iconInstance = iconInstance;
+                            //
+                            //     if (pImGuiService) {
+                            //         ImGuiTextureHandle handle{};
+                            //         int w = 0, h = 0;
+                            //         if (IconLoader::LoadIconFromPNG(pRM, iconInstance, pImGuiService, &handle, &w, &h)) {
+                            //             entry.iconHandle = handle;
+                            //             entry.iconWidth = w;
+                            //             entry.iconHeight = h;
+                            //             entry.iconType = LotConfigEntry::IconType::PNG;
+                            //         }
+                            //     }
+                            // }
+                            //
+                            // // If no PNG icon loaded, try S3D thumbnail as fallback
+                            // if (entry.iconType == LotConfigEntry::IconType::None) {
+                            //     if (pImGuiService) {
+                            //         IDirectDrawSurface7* surface =
+                            //             S3D::ThumbnailGeneratorDX7::GenerateThumbnailFromExemplar(
+                            //                 pBuildingExemplar,
+                            //                 pRM,
+                            //                 pImGuiService,
+                            //                 kThumbnailSize,
+                            //                 5,
+                            //                 0);
+                            //         if (surface) {
+                            //             std::vector<uint8_t> rgba;
+                            //             if (gfx::SurfaceToRGBA(surface, kThumbnailSize, kThumbnailSize, rgba)) {
+                            //                 ImGuiTextureDesc desc{};
+                            //                 desc.width = static_cast<uint32_t>(kThumbnailSize);
+                            //                 desc.height = static_cast<uint32_t>(kThumbnailSize);
+                            //                 desc.pixels = rgba.data();
+                            //                 desc.useSystemMemory = false;
+                            //
+                            //                 ImGuiTextureHandle handle = pImGuiService->CreateTexture(desc);
+                            //                 if (handle.id != 0) {
+                            //                     entry.iconHandle = handle;
+                            //                     entry.iconWidth = kThumbnailSize;
+                            //                     entry.iconHeight = kThumbnailSize;
+                            //                     entry.iconType = LotConfigEntry::IconType::S3D;
+                            //                 }
+                            //             }
+                            //             surface->Release();
+                            //         }
+                            //     }
+                            // }
 
                             // Occupant groups
                             constexpr uint32_t kOccupantGroupProperty = 0xAA1DD396;

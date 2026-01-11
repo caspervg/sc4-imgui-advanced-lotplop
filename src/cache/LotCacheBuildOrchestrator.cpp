@@ -46,13 +46,13 @@ void LotCacheBuildOrchestrator::SetImGuiService(cIGZImGuiService* pImGuiService)
     ui.SetImGuiService(pImGuiService);
 }
 
-bool LotCacheBuildOrchestrator::StartBuildCache(cISC4City* pCity) {
+bool LotCacheBuildOrchestrator::StartBuildCache(cISC4City* pCityToBuild) {
     if (isBuilding) {
         LOG_WARN("Lot cache build already in progress");
         return false;
     }
 
-    if (!pCity) {
+    if (!pCityToBuild) {
         LOG_ERROR("Cannot start lot cache build: no city provided");
         return false;
     }
@@ -61,7 +61,7 @@ bool LotCacheBuildOrchestrator::StartBuildCache(cISC4City* pCity) {
         LOG_WARN("Lot cache build starting without ImGui service; icons will be skipped");
     }
 
-    this->pCity = pCity;
+    this->pCity = pCityToBuild;
     this->isBuilding = true;
     this->phase = Phase::BuildingExemplarCache;
 
@@ -146,6 +146,9 @@ void LotCacheBuildOrchestrator::Cancel() {
 
     // Hide loading UI
     ui.ShowLoadingWindow(false);
+
+    // Reset cache manager state
+    cacheManager.BeginIncrementalBuild();
 
     // Reset state
     isBuilding = false;

@@ -24,11 +24,11 @@
 #include <functional>
 #include <filesystem>
 
+#include "cISC4City.h"
 #include "cISCPropertyHolder.h"
 #include "cRZAutoRefCount.h"
 #include "../lots/LotConfigEntry.h"
 
-class cISC4City;
 class cIGZPersistResourceManager;
 class cIGZImGuiService;
 struct ID3D11Device;
@@ -108,6 +108,6 @@ private:
     size_t currentLotSizeIndex;
     int processedLotCount;
     int totalLotCount;
-    cISC4City* pCityForIncremental;
+    cRZAutoRefCount<cISC4City> pCityForIncremental;
     cIGZImGuiService* pImGuiService = nullptr;
 };

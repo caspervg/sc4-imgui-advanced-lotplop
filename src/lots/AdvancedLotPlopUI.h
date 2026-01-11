@@ -1,6 +1,7 @@
 #pragma once
 #include <unordered_set>
 #include <vector>
+
 #include "cISC4City.h"
 #include "cISC4LotConfiguration.h"
 #include "LotConfigEntry.h"

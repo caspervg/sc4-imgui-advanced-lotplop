@@ -38,7 +38,7 @@ namespace LotConfigTable {
     std::vector<int> BuildSortedIndex(const std::vector<LotConfigEntry>& entries,
 									  const std::unordered_set<uint32_t>& favIDs,
                                       const ImGuiTableSortSpecs* sort_specs) {
-        const int n = static_cast<int>(entries.size());
+        const auto n = static_cast<int>(entries.size());
         std::vector<int> idx;
         idx.reserve(n);
         for (int i = 0; i < n; ++i) idx.push_back(i);

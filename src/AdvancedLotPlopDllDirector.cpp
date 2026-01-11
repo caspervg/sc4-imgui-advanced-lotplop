@@ -58,8 +58,6 @@
 #include "props/PropPainterControlManager.h"
 #include "props/PropPainterUI.h"
 #include "props/PropPainterPanel.h"
-#include "s3d/S3DRenderer.h"
-#include "ui/ImGuiPanelHost.h"
 #include "utils/Config.h"
 #include "utils/Logger.h"
 #include "utils/ShortcutManager.h"
